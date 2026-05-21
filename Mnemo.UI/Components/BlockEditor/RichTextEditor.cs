@@ -174,6 +174,13 @@ public class RichTextEditor : Control, ICustomHitTest
     private List<string> _spellcheckLanguages = ["en"];
     private bool _spellcheckInitialized;
     private string _lastSpellcheckText = string.Empty;
+    /// <summary>
+    /// Pre-computed (from, to) line segments for all current spellcheck underlines.
+    /// Rebuilt when issues change or the TextLayout is replaced — not on every render frame.
+    /// </summary>
+    private List<(Point From, Point To)>? _spellcheckLines;
+    private Pen? _spellcheckPen;
+    private IBrush? _spellcheckBrush;
 
     private static readonly string[] SpellcheckSettingKeys =
     [
@@ -378,7 +385,10 @@ public class RichTextEditor : Control, ICustomHitTest
     protected override void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs e)
     {
         base.OnAttachedToVisualTree(e);
-        StartCaretTimer();
+        // Do NOT start caret timer here. Starting it on every attach means all ~20 realized
+        // RichTextEditors fire InvalidateVisual every 530ms regardless of focus, causing
+        // ~40 repaints/second that each run RenderSpellcheckUnderlines with HitTestTextRange.
+        // The timer is started in OnGotFocus and stopped in OnLostFocus.
         _ = InitializeSpellcheckAsync();
     }
 
@@ -481,6 +491,21 @@ public class RichTextEditor : Control, ICustomHitTest
 
         if (maxWidth <= 0 || double.IsNaN(maxWidth))
             maxWidth = MinLayoutWidth;
+
+        // Skip rebuild when text and width are unchanged (e.g. ArrangeOverride fires immediately after
+        // MeasureOverride with the same width — this is the most common layout cycle for non-equation blocks).
+        // Equations bypass the cache because their reserve-width is re-clamped after layout settles.
+        if (_textLayout != null
+            && !_hasEquationSpans
+            && Math.Abs(_lastLayoutWidth - maxWidth) < 0.5
+            && _lastBuiltText == FlattenRuns(Spans ?? Array.Empty<InlineSpan>()))
+        {
+            if (perfStart != 0)
+                EditorPerfDiagnostics.ReportInteraction(perf, "richText.buildLayout.cached", 0,
+                    $"text={TextLength} width={maxWidth:0.#}");
+            return;
+        }
+
         DisposeLayouts();
 
         var runs = Spans ?? Array.Empty<InlineSpan>();
@@ -510,6 +535,7 @@ public class RichTextEditor : Control, ICustomHitTest
                     null, FlowDirection.LeftToRight, maxWidth);
             }
             _lastBuiltText = string.Empty;
+            _lastLayoutWidth = maxWidth;
             _layoutBoundaryAtLogical = new int[] { 0 };
             _layoutTextLength = 0;
             _backgroundLayout = null;
@@ -555,6 +581,12 @@ public class RichTextEditor : Control, ICustomHitTest
                 backgroundSpans.Count > 0 ? backgroundSpans : null)
             : null;
         _lastBuiltText = text;
+        _lastLayoutWidth = maxWidth;
+
+        // Underline geometry references TextLayout hit-test results — must be recomputed
+        // whenever the layout changes (new text, width, or after DisposeLayouts).
+        RebuildSpellcheckGeometry();
+
         if (perfStart != 0)
         {
             EditorPerfDiagnostics.ReportInteraction(
@@ -916,6 +948,8 @@ public class RichTextEditor : Control, ICustomHitTest
         _lastLayoutWidth = 0;
         _layoutBoundaryAtLogical = null;
         _layoutTextLength = 0;
+        // TextLayout changed — cached underline geometry is stale.
+        _spellcheckLines = null;
     }
 
     private bool ShouldDrawWatermark() =>
@@ -1415,6 +1449,7 @@ public class RichTextEditor : Control, ICustomHitTest
     {
         base.OnLostFocus(e);
         _caretVisible = false;
+        StopCaretTimer();
         InvalidateVisual();
     }
 
@@ -1463,7 +1498,10 @@ public class RichTextEditor : Control, ICustomHitTest
         if (e.GetCurrentPoint(this).Properties.IsRightButtonPressed)
         {
             if (TryOpenSpellcheckContextMenu(e.GetPosition(this)))
+            {
                 e.Handled = true;
+                return;
+            }
             return;
         }
 
@@ -1890,6 +1928,8 @@ public class RichTextEditor : Control, ICustomHitTest
 
     private void OnSpellcheckDecorationGateChanged()
     {
+        _spellcheckPen = null;
+        _spellcheckBrush = null;
         if (!SpellcheckDecorationsActive)
         {
             _spellcheckCts?.Cancel();
@@ -1935,6 +1975,7 @@ public class RichTextEditor : Control, ICustomHitTest
                     _spellcheckIssues.AddRange(issues);
                     _lastSpellcheckText = currentText;
                 }
+                RebuildSpellcheckGeometry();
                 InvalidateVisual();
             });
         }
@@ -1951,19 +1992,34 @@ public class RichTextEditor : Control, ICustomHitTest
             _spellcheckIssues.Clear();
             _lastSpellcheckText = string.Empty;
         }
+        _spellcheckLines = null;
         InvalidateVisual();
     }
 
-    private void RenderSpellcheckUnderlines(DrawingContext context)
+    /// <summary>
+    /// Computes underline geometry from the current <see cref="_spellcheckIssues"/> and
+    /// <see cref="_textLayout"/>. Called once after issues arrive or the layout is rebuilt,
+    /// not on every render frame.
+    /// </summary>
+    private void RebuildSpellcheckGeometry()
     {
         if (_textLayout == null || !SpellcheckDecorationsActive)
+        {
+            _spellcheckLines = null;
             return;
+        }
 
-        var pen = new Pen(GetSpellcheckUnderlineBrush(), 1.2);
         List<SpellcheckIssue> issues;
         lock (_spellcheckSync)
             issues = [.. _spellcheckIssues];
 
+        if (issues.Count == 0)
+        {
+            _spellcheckLines = null;
+            return;
+        }
+
+        var lines = new List<(Point From, Point To)>(issues.Count * 2);
         foreach (var issue in issues)
         {
             if (issue.Length <= 0)
@@ -1978,23 +2034,56 @@ public class RichTextEditor : Control, ICustomHitTest
             if (layoutLen <= 0)
                 continue;
 
-            var rects = _textLayout.HitTestTextRange(layoutStart, layoutLen).ToList();
-            foreach (var rect in rects)
+            foreach (var rect in _textLayout.HitTestTextRange(layoutStart, layoutLen))
             {
                 if (rect.Width <= 0.5 || rect.Height <= 0.5)
                     continue;
                 var y = rect.Bottom - 1.0;
-                context.DrawLine(pen, new Point(rect.X, y), new Point(rect.Right, y));
+                lines.Add((new Point(rect.X, y), new Point(rect.Right, y)));
             }
         }
+
+        _spellcheckLines = lines.Count > 0 ? lines : null;
+    }
+
+    /// <summary>
+    /// Draws pre-computed spellcheck underlines. O(cached line count) — no <see cref="TextLayout"/>
+    /// hit-testing on the render hot path.
+    /// </summary>
+    private void RenderSpellcheckUnderlines(DrawingContext context)
+    {
+        if (!SpellcheckDecorationsActive || _textLayout == null)
+            return;
+
+        // _spellcheckLines is cleared by DisposeLayouts and rebuilt by BuildLayout / RunSpellcheckAsync.
+        // If an InvalidateVisual-only render fires between those two calls, rebuild lazily here
+        // so underlines are never silently lost.
+        if (_spellcheckLines == null)
+        {
+            bool hasIssues;
+            lock (_spellcheckSync)
+                hasIssues = _spellcheckIssues.Count > 0;
+            if (hasIssues)
+                RebuildSpellcheckGeometry();
+        }
+
+        if (_spellcheckLines == null || _spellcheckLines.Count == 0)
+            return;
+
+        // Pen is cached; only reallocated when the brush resource changes (rare).
+        _spellcheckPen ??= new Pen(GetSpellcheckUnderlineBrush(), 1.2);
+        foreach (var (from, to) in _spellcheckLines)
+            context.DrawLine(_spellcheckPen, from, to);
     }
 
     private IBrush GetSpellcheckUnderlineBrush()
     {
+        if (_spellcheckBrush != null)
+            return _spellcheckBrush;
         if (Application.Current?.TryFindResource("SystemFillColorCriticalBrush", out var resource) == true
             && resource is IBrush brush)
-            return brush;
-        return new SolidColorBrush(Color.FromRgb(0xE0, 0x45, 0x45));
+            return _spellcheckBrush = brush;
+        return _spellcheckBrush = new SolidColorBrush(Color.FromRgb(0xE0, 0x45, 0x45));
     }
 
     private bool TryOpenSpellcheckContextMenu(Point point)
@@ -2006,8 +2095,28 @@ public class RichTextEditor : Control, ICustomHitTest
         if (!TryGetIssueAtIndex(idx, out var issue))
             return false;
 
+        OpenSpellcheckMenuAsync(issue);
+        return true;
+    }
+
+    private async void OpenSpellcheckMenuAsync(SpellcheckIssue issue)
+    {
+        var service = ResolveSpellcheckService();
+        IReadOnlyList<string> suggestions = [];
+        if (service != null)
+        {
+            try
+            {
+                // Fetch suggestions on a background thread (single word, fast) then
+                // continue on the UI thread to build and open the menu.
+                suggestions = await service.SuggestAsync(issue.Word, _spellcheckLanguages, CancellationToken.None)
+                    .ConfigureAwait(true);
+            }
+            catch { /* suggestions unavailable — open menu without them */ }
+        }
+
         var items = new List<object>();
-        foreach (var suggestion in issue.Suggestions.Take(5))
+        foreach (var suggestion in suggestions.Take(5))
         {
             var captured = suggestion;
             var menuItem = new MenuItem
@@ -2034,7 +2143,6 @@ public class RichTextEditor : Control, ICustomHitTest
         var menu = new ContextMenu();
         menu.ItemsSource = items;
         menu.Open(this);
-        return true;
     }
 
     private bool TryGetIssueAtIndex(int index, out SpellcheckIssue issue)

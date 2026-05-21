@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
+using Avalonia;
 using Avalonia.Threading;
 using Mnemo.Core.Services;
 
@@ -20,8 +21,27 @@ public static class EditorPerfDiagnostics
     private static readonly object InteractionLock = new();
     private static readonly Dictionary<string, InteractionMetric> InteractionMetrics = new(StringComparer.Ordinal);
     private static DispatcherTimer? _interactionFlushDebounce;
+    private static IPerfDiagnostics? _cached;
 
-    public static IPerfDiagnostics? Resolve() => null;
+    /// <summary>Lazy resolve from <see cref="App.Services"/>; null until bootstrap completes.</summary>
+    public static IPerfDiagnostics? Resolve()
+    {
+        if (_cached != null)
+            return _cached;
+
+        if (Application.Current is App app)
+            _cached = app.Services?.GetService(typeof(IPerfDiagnostics)) as IPerfDiagnostics;
+
+        return _cached;
+    }
+
+    /// <summary>Records a sub-phase when it exceeds <see cref="SlowPathThresholdMs"/>.</summary>
+    public static void RecordPhase(IPerfDiagnostics? perf, long phaseStartTicks, string operation, string? detail = null)
+    {
+        if (perf is not { IsEnabled: true } || phaseStartTicks == 0)
+            return;
+        RecordIfSlow(perf, operation, ElapsedMs(phaseStartTicks), detail);
+    }
 
     public static PerfDiagnosticsScope Measure(IPerfDiagnostics? perf, string operation, string? detail = null) =>
         perf is { IsEnabled: true }
@@ -122,7 +142,9 @@ public static class EditorPerfDiagnostics
         static void OnInteractionFlushDebounceTick(object? sender, EventArgs e)
         {
             _interactionFlushDebounce?.Stop();
-            FlushInteractionMetrics(Resolve());
+            var perf = Resolve();
+            FlushInteractionMetrics(perf);
+            FlushContentChangeMetrics(perf);
         }
     }
 

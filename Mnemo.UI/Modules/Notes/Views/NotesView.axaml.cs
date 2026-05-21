@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
+using System.Diagnostics;
 using System.Linq;
 using System.Text.Json;
 using System.Threading.Tasks;
@@ -131,6 +132,12 @@ public partial class NotesView : UserControl
         if (editor == null)
             return;
 
+        var perf = EditorPerfDiagnostics.Resolve();
+        using var loadScope = EditorPerfDiagnostics.Measure(
+            perf,
+            "notes.loadBlocksForNote",
+            vm.SelectedNote?.NoteId ?? "(none)");
+
         var sp = ((App)Application.Current!).Services;
         if (editor.History == null)
         {
@@ -219,6 +226,9 @@ public partial class NotesView : UserControl
         if (targetNote == null)
             return;
 
+        var perf = EditorPerfDiagnostics.Resolve();
+        var tickStart = perf is { IsEnabled: true } ? Stopwatch.GetTimestamp() : 0;
+
         // Cheap structural hash of the live document. Compared to the fingerprint of the previous
         // save for THIS note; if equal, the autosave tick was triggered by something other than a
         // content edit (e.g. focus loss, redundant BlocksChanged from a no-op gesture) and we skip
@@ -228,6 +238,7 @@ public partial class NotesView : UserControl
             && last.NoteId == targetNote.NoteId
             && last.Fingerprint == currentFingerprint)
         {
+            EditorPerfDiagnostics.RecordPhase(perf, tickStart, "autosave.skippedUnchanged");
             return;
         }
 
@@ -237,12 +248,20 @@ public partial class NotesView : UserControl
         // threadpool so this await does not block the UI thread on synchronous serialization of
         // 1500 blocks. ModifiedText / title PropertyChanged work still runs on the UI thread
         // (we're back here via the captured sync context after the awaited Task completes).
+        var saveStart = perf is { IsEnabled: true } ? Stopwatch.GetTimestamp() : 0;
         if (noteToSave != null)
             await vm.SaveNoteWithContentAsync(noteToSave, blocks, null);
         else
             await vm.SaveCurrentNoteAsync(blocks, null);
+        EditorPerfDiagnostics.RecordPhase(perf, saveStart, "autosave.persist", $"blocks={blocks.Length}");
 
         _lastSavedFingerprint = (targetNote.NoteId, currentFingerprint);
+
+        EditorPerfDiagnostics.RecordIfSlow(
+            perf,
+            "autosave.tick",
+            EditorPerfDiagnostics.ElapsedMs(tickStart),
+            $"blocks={blocks.Length} note={targetNote.NoteId}");
     }
 
     protected override void OnAttachedToVisualTree(Avalonia.VisualTreeAttachmentEventArgs e)

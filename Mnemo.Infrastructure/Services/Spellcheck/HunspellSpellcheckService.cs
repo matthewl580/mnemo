@@ -35,43 +35,52 @@ public sealed class HunspellSpellcheckService : ISpellcheckService
             return [];
 
         var spellbooks = await LoadSpellbooksAsync(languageCodes, cancellationToken).ConfigureAwait(false);
-        var issues = new List<SpellcheckIssue>();
-        int offset = 0;
 
-        foreach (var span in spans)
+        // LoadSpellbooksAsync resolves synchronously once the cache is warm, meaning
+        // ConfigureAwait(false) would leave execution on the UI thread. Task.Run guarantees
+        // the Hunspell word-checking loop always runs on a thread-pool thread.
+        return await Task.Run(() =>
         {
-            cancellationToken.ThrowIfCancellationRequested();
+            var issues = new List<SpellcheckIssue>();
+            int offset = 0;
 
-            if (span is TextSpan textSpan)
+            foreach (var span in spans)
             {
-                if (!ShouldCheckTextSpan(textSpan))
+                cancellationToken.ThrowIfCancellationRequested();
+
+                if (span is TextSpan textSpan)
                 {
+                    if (!ShouldCheckTextSpan(textSpan))
+                    {
+                        offset += textSpan.Text.Length;
+                        continue;
+                    }
+
+                    foreach (Match match in TokenRegex.Matches(textSpan.Text))
+                    {
+                        var token = match.Value;
+                        if (token.Length <= 1)
+                            continue;
+                        if (token.Any(char.IsDigit))
+                            continue;
+                        if (IsCorrect(token, dictionaries, spellbooks))
+                            continue;
+
+                        // Suggestions are deferred — computed on demand when the user right-clicks.
+                        // Building them here for every misspelled word (especially with a wrong-language
+                        // dictionary where all words are incorrect) was the primary source of lag.
+                        issues.Add(new SpellcheckIssue(offset + match.Index, match.Length, token, []));
+                    }
+
                     offset += textSpan.Text.Length;
                     continue;
                 }
 
-                foreach (Match match in TokenRegex.Matches(textSpan.Text))
-                {
-                    var token = match.Value;
-                    if (token.Length <= 1)
-                        continue;
-                    if (token.Any(char.IsDigit))
-                        continue;
-                    if (IsCorrect(token, dictionaries, spellbooks))
-                        continue;
-
-                    var suggestions = BuildSuggestions(token, dictionaries, spellbooks);
-                    issues.Add(new SpellcheckIssue(offset + match.Index, match.Length, token, suggestions));
-                }
-
-                offset += textSpan.Text.Length;
-                continue;
+                offset += 1;
             }
 
-            offset += 1;
-        }
-
-        return issues;
+            return (IReadOnlyList<SpellcheckIssue>)issues;
+        }, cancellationToken).ConfigureAwait(false);
     }
 
     public Task<IReadOnlyList<string>> SuggestAsync(
@@ -85,7 +94,9 @@ public sealed class HunspellSpellcheckService : ISpellcheckService
             static kv => kv.Key,
             static _ => (IReadOnlySet<string>)new HashSet<string>(StringComparer.OrdinalIgnoreCase),
             StringComparer.OrdinalIgnoreCase);
-        return Task.FromResult((IReadOnlyList<string>)BuildSuggestions(word, dictionaries, spellbooks));
+        return Task.Run(
+            () => (IReadOnlyList<string>)BuildSuggestions(word, dictionaries, spellbooks),
+            cancellationToken);
     }
 
     public async Task AddWordAsync(

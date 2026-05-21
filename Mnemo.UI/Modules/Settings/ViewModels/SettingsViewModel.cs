@@ -425,7 +425,7 @@ public partial class SettingsViewModel : ViewModelBase
                 _settingsService,
                 IPerfDiagnostics.EnabledSettingKey,
                 "Performance diagnostics",
-                "Records module load, overlay, markdown render timings, chat list metrics, and memory snapshots. Startup timings are always buffered; when enabled, entries also go to the debug log file and console.",
+                "Records module load, overlay, markdown render, notes editor (load/save/keystroke/find), chat list metrics, and memory snapshots. Startup timings are always buffered; when enabled, entries also go to the debug log file and console.",
                 false));
             devGroup.Items.Add(new AsyncActionSettingViewModel(
                 "View performance log",

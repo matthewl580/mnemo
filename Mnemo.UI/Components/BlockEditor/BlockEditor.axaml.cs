@@ -190,11 +190,28 @@ public partial class BlockEditor : UserControl, INotifyPropertyChanged
     /// </remarks>
     public long ComputeContentFingerprint()
     {
+        var perf = EditorPerfDiagnostics.Resolve();
+        var perfStart = perf is { IsEnabled: true } ? Stopwatch.GetTimestamp() : 0;
+        var blockCount = 0;
+
         unchecked
         {
             long h = 1469598103934665603L; // FNV-1a 64-bit offset basis
             foreach (var b in BlockHierarchy.EnumerateInDocumentOrder(_blocks))
+            {
+                blockCount++;
                 h = MixBlockFingerprint(h, b);
+            }
+
+            if (perfStart != 0)
+            {
+                EditorPerfDiagnostics.RecordIfSlow(
+                    perf,
+                    "computeContentFingerprint",
+                    EditorPerfDiagnostics.ElapsedMs(perfStart),
+                    $"blocks={blockCount} top={Blocks.Count} realized={RealizedRowCount}");
+            }
+
             return h;
         }
     }
@@ -1018,10 +1035,16 @@ public partial class BlockEditor : UserControl, INotifyPropertyChanged
             phaseStart = Stopwatch.GetTimestamp();
         }
 
+        var subStart = perf is { IsEnabled: true } ? Stopwatch.GetTimestamp() : 0;
         FlushTypingBatch();
+        EditorPerfDiagnostics.RecordPhase(perf, subStart, "loadBlocks.reset.flushTypingBatch");
+
+        subStart = perf is { IsEnabled: true } ? Stopwatch.GetTimestamp() : 0;
         _pendingSnapshot = null;
         _pendingCaretBefore = null;
         _history?.Clear();
+        EditorPerfDiagnostics.RecordPhase(perf, subStart, "loadBlocks.reset.historyClear");
+
         _selectedBlockCount = 0;
         // Defensive reset: any cross-block / box-select state must not leak across notes.
         // Anchor VMs from the previous note will be unsubscribed below; leaving them set here
@@ -1456,14 +1479,21 @@ public partial class BlockEditor : UserControl, INotifyPropertyChanged
         {
         }
         if (_findPanelVisible)
+        {
+            var findStart = perf is { IsEnabled: true } ? Stopwatch.GetTimestamp() : 0;
             RefreshFindMatchesAndHighlights();
+            EditorPerfDiagnostics.RecordPhase(perf, findStart, "contentChanged.findRefresh");
+        }
+
+        var notifyStart = perf is { IsEnabled: true } ? Stopwatch.GetTimestamp() : 0;
         BlocksChanged?.Invoke();
+        EditorPerfDiagnostics.RecordPhase(perf, notifyStart, "contentChanged.blocksChanged");
 
         if (perfStart != 0)
         {
             var ms = EditorPerfDiagnostics.ElapsedMs(perfStart);
             EditorPerfDiagnostics.ReportContentChange(ms);
-            EditorPerfDiagnostics.RecordIfSlow(perf, "contentChanged", ms);
+            EditorPerfDiagnostics.RecordIfSlow(perf, "contentChanged", ms, $"top={Blocks.Count} realized={RealizedRowCount}");
         }
     }
 
@@ -2090,10 +2120,29 @@ public partial class BlockEditor : UserControl, INotifyPropertyChanged
 
     public void NotifyBlocksChanged()
     {
+        var perf = EditorPerfDiagnostics.Resolve();
+        var perfStart = perf is { IsEnabled: true } ? Stopwatch.GetTimestamp() : 0;
+
         if (_findPanelVisible)
+        {
+            var findStart = perf is { IsEnabled: true } ? Stopwatch.GetTimestamp() : 0;
             RefreshFindMatchesAndHighlights();
+            EditorPerfDiagnostics.RecordPhase(perf, findStart, "notifyBlocksChanged.findRefresh");
+        }
+
+        var titlesStart = perf is { IsEnabled: true } ? Stopwatch.GetTimestamp() : 0;
         RefreshPageBlockTitles();
+        EditorPerfDiagnostics.RecordPhase(perf, titlesStart, "notifyBlocksChanged.pageTitles");
+
+        var notifyStart = perf is { IsEnabled: true } ? Stopwatch.GetTimestamp() : 0;
         BlocksChanged?.Invoke();
+        EditorPerfDiagnostics.RecordPhase(perf, notifyStart, "notifyBlocksChanged.blocksChanged");
+
+        EditorPerfDiagnostics.RecordIfSlow(
+            perf,
+            "notifyBlocksChanged",
+            EditorPerfDiagnostics.ElapsedMs(perfStart),
+            $"top={Blocks.Count} realized={RealizedRowCount}");
     }
 
     public event System.Action? BlocksChanged;
@@ -3558,9 +3607,24 @@ public partial class BlockEditor : UserControl, INotifyPropertyChanged
 
     private void RefreshFindMatchesAndHighlights()
     {
+        var perf = EditorPerfDiagnostics.Resolve();
+        var perfStart = perf is { IsEnabled: true } ? Stopwatch.GetTimestamp() : 0;
+
+        var rebuildStart = perf is { IsEnabled: true } ? Stopwatch.GetTimestamp() : 0;
         RebuildFindMatches();
+        EditorPerfDiagnostics.RecordPhase(perf, rebuildStart, "find.rebuildMatches", $"matches={_findMatches.Count}");
+
+        var applyStart = perf is { IsEnabled: true } ? Stopwatch.GetTimestamp() : 0;
         ApplyFindHighlights();
+        EditorPerfDiagnostics.RecordPhase(perf, applyStart, "find.applyHighlights");
+
         UpdateFindMatchCountText();
+
+        EditorPerfDiagnostics.RecordIfSlow(
+            perf,
+            "find.refresh",
+            EditorPerfDiagnostics.ElapsedMs(perfStart),
+            $"top={Blocks.Count} matches={_findMatches.Count} realized={RealizedRowCount}");
     }
 
     private void RebuildFindMatches()
