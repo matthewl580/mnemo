@@ -38,6 +38,11 @@ public partial class SketchBlockComponent : BlockComponentBase
     private double _svgNaturalWidth = 320;
     private double _svgNaturalHeight = 160;
 
+    private Point? _reorderPressPoint;
+    private PointerPressedEventArgs? _reorderPressArgs;
+    private bool _reorderDragLaunched;
+    private const double SketchReorderDragThresholdPixels = 6;
+
     /// <summary>BlockContainer padding + add column + drag column. Content column = list row width minus this.</summary>
     private const double BlockItemContentChromeInset = 76;
 
@@ -220,8 +225,76 @@ public partial class SketchBlockComponent : BlockComponentBase
             return;
 
         HoverHost?.Focus();
-        OpenEditorOverlay();
+
+        // Defer opening the overlay until release — if the pointer moves beyond the threshold
+        // first, we initiate a block reorder drag instead.
+        _reorderDragLaunched = false;
+        _reorderPressPoint = e.GetPosition(RootBorder);
+        _reorderPressArgs = e;
+        e.Pointer.Capture(RootBorder);
         e.Handled = true;
+    }
+
+    private void RootBorder_PointerMoved(object? sender, PointerEventArgs e)
+    {
+        if (!_reorderPressPoint.HasValue || _reorderDragLaunched) return;
+        if (!ReferenceEquals(e.Pointer.Captured, RootBorder)) return;
+        if (!e.GetCurrentPoint(this).Properties.IsLeftButtonPressed) return;
+
+        var p = e.GetPosition(RootBorder);
+        var origin = _reorderPressPoint.Value;
+        var dist = Math.Sqrt((p.X - origin.X) * (p.X - origin.X) + (p.Y - origin.Y) * (p.Y - origin.Y));
+        if (dist >= SketchReorderDragThresholdPixels)
+        {
+            _reorderDragLaunched = true;
+            _ = RunSketchReorderDragAsync();
+        }
+    }
+
+    private void RootBorder_PointerReleased(object? sender, PointerReleasedEventArgs e)
+    {
+        if (ReferenceEquals(e.Pointer.Captured, RootBorder))
+            e.Pointer.Capture(null);
+
+        if (!_reorderDragLaunched && _reorderPressPoint.HasValue)
+            OpenEditorOverlay();
+
+        ClearSketchReorderGestureState();
+    }
+
+    private void RootBorder_PointerCaptureLost(object? sender, PointerCaptureLostEventArgs e)
+    {
+        // Releasing capture to start DoDragDrop fires this — do not clear; RunSketchReorderDragAsync clears after drop.
+        if (_reorderDragLaunched)
+            return;
+        ClearSketchReorderGestureState();
+    }
+
+    private void ClearSketchReorderGestureState()
+    {
+        _reorderPressPoint = null;
+        _reorderPressArgs = null;
+        _reorderDragLaunched = false;
+    }
+
+    private async Task RunSketchReorderDragAsync()
+    {
+        try
+        {
+            if (_reorderPressArgs == null)
+                return;
+
+            if (ReferenceEquals(_reorderPressArgs.Pointer.Captured, RootBorder))
+                _reorderPressArgs.Pointer.Capture(null);
+
+            var eb = this.GetVisualAncestors().OfType<EditableBlock>().FirstOrDefault();
+            if (eb != null)
+                await eb.BeginBlockReorderDragCoreAsync(_reorderPressArgs).ConfigureAwait(true);
+        }
+        finally
+        {
+            ClearSketchReorderGestureState();
+        }
     }
 
     private void OpenEditorOverlay()

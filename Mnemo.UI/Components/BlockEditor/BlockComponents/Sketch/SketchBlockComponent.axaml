@@ -63,7 +63,10 @@
                 Cursor="Hand"
                 MinHeight="150"
                 Padding="12"
-                PointerPressed="RootBorder_PointerPressed">
+                PointerPressed="RootBorder_PointerPressed"
+                PointerMoved="RootBorder_PointerMoved"
+                PointerReleased="RootBorder_PointerReleased"
+                PointerCaptureLost="RootBorder_PointerCaptureLost">
                 <Grid RowDefinitions="Auto,8,*">
                     <!-- Header row: label + toolbar overlay (toolbar never affects layout height) -->
                     <Grid>

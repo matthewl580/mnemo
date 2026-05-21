@@ -5128,6 +5128,7 @@ public partial class BlockEditor : UserControl, INotifyPropertyChanged
     // multi-line blocks where the midpoint sits inside visible text.
     private const double SnapBandFraction = 0.25;
     private const double HorizontalDropLineHeight = 3;
+    private const double BlockReorderCommitThresholdPixels = 24;
 
     /// <summary>
     /// Called by EditableBlock on DragOver. Computes insert index from cursor Y using
@@ -5142,6 +5143,16 @@ public partial class BlockEditor : UserControl, INotifyPropertyChanged
         }
 
         var primary = payload.Primary;
+        if (payload.DragStartPointInEditor is { } start)
+        {
+            var dx = cursorPosInEditor.X - start.X;
+            var dy = cursorPosInEditor.Y - start.Y;
+            if (Math.Sqrt(dx * dx + dy * dy) < BlockReorderCommitThresholdPixels)
+            {
+                ClearDropIndicator();
+                return;
+            }
+        }
 
         if (payload.BlocksInDocumentOrder.Count == 1
             && TryUpdateSplitDropIndicator(cursorPosInEditor, primary))
@@ -5312,7 +5323,7 @@ public partial class BlockEditor : UserControl, INotifyPropertyChanged
     }
 
     /// <summary>Build reorder payload: Ctrl/Meta + multi-selection moves all selected (column pairs expanded).</summary>
-    internal BlockViewModel.BlockReorderDragPayload CreateBlockReorderPayload(BlockViewModel handleVm, KeyModifiers mods)
+    internal BlockViewModel.BlockReorderDragPayload CreateBlockReorderPayload(BlockViewModel handleVm, KeyModifiers mods, Point? dragStartPointInEditor = null)
     {
         bool group = (mods & (KeyModifiers.Control | KeyModifiers.Meta)) != 0;
         if (!group || !handleVm.IsSelected)
@@ -5320,7 +5331,8 @@ public partial class BlockEditor : UserControl, INotifyPropertyChanged
             return new BlockViewModel.BlockReorderDragPayload
             {
                 Primary = handleVm,
-                BlocksInDocumentOrder = new[] { handleVm }
+                BlocksInDocumentOrder = new[] { handleVm },
+                DragStartPointInEditor = dragStartPointInEditor
             };
         }
 
@@ -5330,7 +5342,8 @@ public partial class BlockEditor : UserControl, INotifyPropertyChanged
             return new BlockViewModel.BlockReorderDragPayload
             {
                 Primary = handleVm,
-                BlocksInDocumentOrder = new[] { handleVm }
+                BlocksInDocumentOrder = new[] { handleVm },
+                DragStartPointInEditor = dragStartPointInEditor
             };
         }
 
@@ -5356,7 +5369,8 @@ public partial class BlockEditor : UserControl, INotifyPropertyChanged
         return new BlockViewModel.BlockReorderDragPayload
         {
             Primary = handleVm,
-            BlocksInDocumentOrder = ordered
+            BlocksInDocumentOrder = ordered,
+            DragStartPointInEditor = dragStartPointInEditor
         };
     }
 

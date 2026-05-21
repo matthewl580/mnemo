@@ -508,6 +508,9 @@ public partial class ImageBlockComponent : BlockComponentBase
 
     private void ImageChrome_PointerCaptureLost(object? sender, PointerCaptureLostEventArgs e)
     {
+        // Releasing capture to start DoDragDrop fires this — do not clear; RunImageReorderDragAsync clears after drop.
+        if (_imageReorderDragLaunched)
+            return;
         ClearImageReorderGestureState();
     }
 

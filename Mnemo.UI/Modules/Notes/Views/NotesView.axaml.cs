@@ -260,6 +260,7 @@ public partial class NotesView : UserControl
         _attachedWindow = this.GetVisualAncestors().OfType<Window>().FirstOrDefault();
         if (_attachedWindow != null)
         {
+            _attachedWindow.AddHandler(InputElement.KeyDownEvent, OnWindowKeyDownTunnel, RoutingStrategies.Tunnel);
             _attachedWindow.KeyDown += OnWindowKeyDown;
             _attachedWindow.Deactivated += OnWindowDeactivated;
         }
@@ -334,6 +335,72 @@ public partial class NotesView : UserControl
             _dragCoordinator.CancelDrag();
             e.Handled = true;
         }
+    }
+
+    private void OnWindowKeyDownTunnel(object? sender, KeyEventArgs e)
+    {
+        if (e.Handled) return;
+        if (DataContext is not NotesViewModel { SelectedNote: not null }) return;
+        if (!IsKeyboardFocusWithinNotesView()) return;
+
+        if (TryHandleDocumentViewShortcut(e))
+            return;
+
+        if (ShouldDeferDocumentUndoRedoToTextInput())
+            return;
+
+        var editor = GetBlockEditor();
+        if (editor == null) return;
+
+        if (IsPrimaryShortcut(e, Key.Z) && !e.KeyModifiers.HasFlag(KeyModifiers.Shift))
+        {
+            e.Handled = true;
+            _ = editor.UndoAsync();
+            return;
+        }
+
+        if (IsPrimaryShortcut(e, Key.Y)
+            || (IsPrimaryShortcut(e, Key.Z) && e.KeyModifiers.HasFlag(KeyModifiers.Shift)))
+        {
+            e.Handled = true;
+            _ = editor.RedoAsync();
+        }
+    }
+
+    private bool TryHandleDocumentViewShortcut(KeyEventArgs e)
+    {
+        if (!IsPrimaryShortcut(e, Key.D0) && !IsPrimaryShortcut(e, Key.NumPad0))
+            return false;
+
+        ResetEditorView();
+        e.Handled = true;
+        return true;
+    }
+
+    private bool IsKeyboardFocusWithinNotesView()
+    {
+        var focused = TopLevel.GetTopLevel(this)?.FocusManager?.GetFocusedElement();
+        if (focused == null)
+            return true;
+        if (ReferenceEquals(focused, this))
+            return true;
+        return focused is Visual visual
+            && (ReferenceEquals(visual, this) || visual.GetVisualAncestors().Any(a => ReferenceEquals(a, this)));
+    }
+
+    private bool ShouldDeferDocumentUndoRedoToTextInput()
+    {
+        var focused = TopLevel.GetTopLevel(this)?.FocusManager?.GetFocusedElement() as Visual;
+        return focused is TextBox || focused?.GetVisualAncestors().Any(a => a is TextBox) == true;
+    }
+
+    private static bool IsPrimaryShortcut(KeyEventArgs e, Key key)
+    {
+        if (e.Key != key) return false;
+        if (e.KeyModifiers.HasFlag(KeyModifiers.Alt)) return false;
+
+        var primary = OperatingSystem.IsMacOS() ? KeyModifiers.Meta : KeyModifiers.Control;
+        return e.KeyModifiers.HasFlag(primary);
     }
 
     private void OnWindowDeactivated(object? sender, EventArgs e)
@@ -843,6 +910,7 @@ public partial class NotesView : UserControl
 
         if (_attachedWindow != null)
         {
+            _attachedWindow.RemoveHandler(InputElement.KeyDownEvent, OnWindowKeyDownTunnel);
             _attachedWindow.KeyDown -= OnWindowKeyDown;
             _attachedWindow.Deactivated -= OnWindowDeactivated;
             _attachedWindow = null;

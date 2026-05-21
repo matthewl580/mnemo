@@ -2507,7 +2507,7 @@ public partial class EditableBlock : UserControl
         var editor = FindParentBlockEditor();
         if (editor == null) return;
 
-        var payload = editor.CreateBlockReorderPayload(_viewModel, e.KeyModifiers);
+        var payload = editor.CreateBlockReorderPayload(_viewModel, e.KeyModifiers, e.GetPosition(editor));
         editor.ClearBlockSelection();
 
         var transfer = new DataTransfer();

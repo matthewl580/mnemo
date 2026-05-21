@@ -26,6 +26,7 @@ public class BlockViewModel : INotifyPropertyChanged
     {
         public required BlockViewModel Primary { get; init; }
         public required IReadOnlyList<BlockViewModel> BlocksInDocumentOrder { get; init; }
+        public Point? DragStartPointInEditor { get; init; }
 
         public static readonly DataFormat<BlockReorderDragPayload> Format =
             AvaloniaDataFormats.CreateApplicationFormat<BlockReorderDragPayload>("BlockReorderDragPayload");
