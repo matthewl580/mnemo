@@ -2443,11 +2443,11 @@ public partial class BlockEditor : UserControl, INotifyPropertyChanged
              source.GetVisualAncestors().OfType<Border>().Any(b => b.Tag is "AddBlockBelow"));
         if (hitIsAddBlockBelow) return;
 
-        // Image block width resize strip — must not capture here or the first drag is eaten by cross-block selection.
-        bool hitIsImageResizeHandle = source != null &&
-            (source is Border { Tag: "ImageResizeHandle" } ||
-             source.GetVisualAncestors().OfType<Border>().Any(b => b.Tag is "ImageResizeHandle"));
-        if (hitIsImageResizeHandle) return;
+        // Image/sketch width resize strip — must not capture here or the first drag is eaten by cross-block selection.
+        bool hitIsBlockWidthResizeHandle = source != null &&
+            (source is Border { Tag: "ImageResizeHandle" or "SketchResizeHandle" } ||
+             source.GetVisualAncestors().OfType<Border>().Any(b => b.Tag is "ImageResizeHandle" or "SketchResizeHandle"));
+        if (hitIsBlockWidthResizeHandle) return;
 
         // Column splitter sits in the gutter between cells; not inside EditableBlock hit — would otherwise arm box-select and steal capture.
         bool hitIsColumnSplitHandle = source != null &&
@@ -2491,6 +2491,18 @@ public partial class BlockEditor : UserControl, INotifyPropertyChanged
                 return;
             }
 
+            // Sketch block: never capture on press — diagram chrome uses its own press/release gesture.
+            if (vm.Type == BlockType.Sketch)
+            {
+                if (!vm.IsFocused)
+                {
+                    ClearBlockSelection();
+                    ClearTextSelectionInAllBlocksExcept(null);
+                    vm.IsFocused = true;
+                }
+                return;
+            }
+
             // If this block already has focus, let the event reach RichTextEditor so it can set
             // the caret from the click (HitTestPoint). Otherwise we'd set Handled and the caret would never move.
             if (vm.IsFocused)
@@ -2501,9 +2513,8 @@ public partial class BlockEditor : UserControl, INotifyPropertyChanged
                 // If the press landed outside the RichTextEditor itself (e.g. in block padding),
                 // the editor won't receive OnPointerPressed. Initiate drag-select manually so the
                 // full block width acts as a hit target for starting text selection.
-                // Image blocks: caption is the only RTE — clicks on the bitmap/toolbar/resize are not
-                // "padding"; mapping them into StartDragSelect marks Handled and breaks align/menu/reorder.
-                if (vm.Type != BlockType.Image)
+                // Image/sketch blocks: clicks on chrome/toolbar/resize are not text "padding".
+                if (vm.Type is not BlockType.Image and not BlockType.Sketch)
                 {
                     var richEditor = editableBlock.TryGetRichTextEditor();
                     if (richEditor != null)

@@ -60,13 +60,8 @@
                 BorderBrush="{DynamicResource SystemControlForegroundBaseLowBrush}"
                 BorderThickness="1"
                 CornerRadius="6"
-                Cursor="Hand"
                 MinHeight="150"
-                Padding="12"
-                PointerPressed="RootBorder_PointerPressed"
-                PointerMoved="RootBorder_PointerMoved"
-                PointerReleased="RootBorder_PointerReleased"
-                PointerCaptureLost="RootBorder_PointerCaptureLost">
+                Padding="12">
                 <Grid RowDefinitions="Auto,8,*">
                     <!-- Header row: label + toolbar overlay (toolbar never affects layout height) -->
                     <Grid>
@@ -187,12 +182,18 @@
                         </StackPanel>
                     </Grid>
 
-                    <!-- Diagram area with diagnostics -->
+                    <!-- Diagram chrome: pointer handlers here (not on RootBorder) so toolbar flyouts work -->
                     <Border
+                        x:Name="SketchChrome"
                         Grid.Row="2"
                         Background="{DynamicResource SystemControlBackgroundChromeLowBrush}"
                         CornerRadius="6"
-                        Padding="12">
+                        Cursor="Hand"
+                        Padding="12"
+                        PointerPressed="SketchChrome_PointerPressed"
+                        PointerMoved="SketchChrome_PointerMoved"
+                        PointerReleased="SketchChrome_PointerReleased"
+                        PointerCaptureLost="SketchChrome_PointerCaptureLost">
                         <Grid RowDefinitions="*,Auto">
                             <controls:SketchSvgView
                                 x:Name="Preview"
@@ -214,6 +215,7 @@
             <!-- Resize handle overlaid on right edge of the card -->
             <Border
                 x:Name="ResizeHitBorder"
+                Tag="SketchResizeHandle"
                 ZIndex="1"
                 Width="14"
                 HorizontalAlignment="Right"

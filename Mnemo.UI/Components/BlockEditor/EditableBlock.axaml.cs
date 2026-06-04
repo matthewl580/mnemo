@@ -2874,19 +2874,19 @@ public partial class EditableBlock : UserControl
     /// </summary>
     public bool IsPointerHitInsideBlock(Point pointInThis)
     {
-        if (_viewModel?.Type != BlockType.Image)
+        if (_viewModel?.Type is not BlockType.Image and not BlockType.Sketch)
             return new Rect(0, 0, Bounds.Width, Bounds.Height).Contains(pointInThis);
 
-        if (HitTestImageBlockTarget(AddBlockBelowBorder, pointInThis))
+        if (HitTestChromeSizedBlockTarget(AddBlockBelowBorder, pointInThis))
             return true;
-        if (HitTestImageBlockTarget(DragHandleBorder, pointInThis))
+        if (HitTestChromeSizedBlockTarget(DragHandleBorder, pointInThis))
             return true;
-        if (HitTestImageBlockTarget(BlockContentControl, pointInThis))
+        if (HitTestChromeSizedBlockTarget(BlockContentControl, pointInThis))
             return true;
         return false;
     }
 
-    private bool HitTestImageBlockTarget(Control? child, Point pointInThis)
+    private bool HitTestChromeSizedBlockTarget(Control? child, Point pointInThis)
     {
         if (child == null) return false;
         var topLeft = child.TranslatePoint(new Point(0, 0), this);
@@ -2901,7 +2901,7 @@ public partial class EditableBlock : UserControl
     /// </summary>
     public Rect GetBoxSelectIntersectionBoundsRelativeTo(Visual relativeTo)
     {
-        if (_viewModel?.Type != BlockType.Image)
+        if (_viewModel?.Type is not BlockType.Image and not BlockType.Sketch)
         {
             var topLeft = this.TranslatePoint(new Point(0, 0), relativeTo);
             if (!topLeft.HasValue) return default;

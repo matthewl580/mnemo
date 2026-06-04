@@ -41,6 +41,10 @@ public partial class SketchBlockComponent : BlockComponentBase
     private Point? _reorderPressPoint;
     private PointerPressedEventArgs? _reorderPressArgs;
     private bool _reorderDragLaunched;
+    private TopLevel? _gestureTopLevel;
+    private EventHandler<PointerReleasedEventArgs>? _gesturePointerReleasedHandler;
+    private EventHandler<PointerEventArgs>? _gesturePointerMovedHandler;
+    private bool _gestureTopLevelHandlersActive;
     private const double SketchReorderDragThresholdPixels = 6;
 
     /// <summary>BlockContainer padding + add column + drag column. Content column = list row width minus this.</summary>
@@ -84,6 +88,7 @@ public partial class SketchBlockComponent : BlockComponentBase
             _subscribedViewModel.PropertyChanged -= OnViewModelPropertyChanged;
         _subscribedViewModel = null;
         DataContextChanged -= OnDataContextChanged;
+        UnregisterSketchGestureTopLevelHandlers();
         CloseOverlay();
         base.OnDetachedFromVisualTree(e);
     }
@@ -213,15 +218,13 @@ public partial class SketchBlockComponent : BlockComponentBase
         }
     }
 
-    // ── Open editor overlay (card click) ─────────────────────────────────────
+    // ── Open editor overlay (diagram chrome click; release without drag) ─────
 
-    private void RootBorder_PointerPressed(object? sender, PointerPressedEventArgs e)
+    private void SketchChrome_PointerPressed(object? sender, PointerPressedEventArgs e)
     {
         if (!e.GetCurrentPoint(this).Properties.IsLeftButtonPressed)
             return;
-
-        // Don't open editor if the click was on a toolbar button
-        if (Toolbar != null && IsVisualDescendantOf(e.Source as Visual, Toolbar))
+        if (SketchChrome == null || !IsPointerWithinSketchChrome(e))
             return;
 
         HoverHost?.Focus();
@@ -229,44 +232,98 @@ public partial class SketchBlockComponent : BlockComponentBase
         // Defer opening the overlay until release — if the pointer moves beyond the threshold
         // first, we initiate a block reorder drag instead.
         _reorderDragLaunched = false;
-        _reorderPressPoint = e.GetPosition(RootBorder);
+        _reorderPressPoint = e.GetPosition(SketchChrome);
         _reorderPressArgs = e;
-        e.Pointer.Capture(RootBorder);
-        e.Handled = true;
+        e.Pointer.Capture(SketchChrome);
+        RegisterSketchGestureTopLevelHandlers();
     }
 
-    private void RootBorder_PointerMoved(object? sender, PointerEventArgs e)
+    private void SketchChrome_PointerMoved(object? sender, PointerEventArgs e) =>
+        TryAdvanceSketchReorderDrag(e);
+
+    private void SketchChrome_PointerReleased(object? sender, PointerReleasedEventArgs e) =>
+        CompleteSketchClickGesture(e);
+
+    private void SketchChrome_PointerCaptureLost(object? sender, PointerCaptureLostEventArgs e)
     {
-        if (!_reorderPressPoint.HasValue || _reorderDragLaunched) return;
-        if (!ReferenceEquals(e.Pointer.Captured, RootBorder)) return;
-        if (!e.GetCurrentPoint(this).Properties.IsLeftButtonPressed) return;
-
-        var p = e.GetPosition(RootBorder);
-        var origin = _reorderPressPoint.Value;
-        var dist = Math.Sqrt((p.X - origin.X) * (p.X - origin.X) + (p.Y - origin.Y) * (p.Y - origin.Y));
-        if (dist >= SketchReorderDragThresholdPixels)
-        {
-            _reorderDragLaunched = true;
-            _ = RunSketchReorderDragAsync();
-        }
-    }
-
-    private void RootBorder_PointerReleased(object? sender, PointerReleasedEventArgs e)
-    {
-        if (ReferenceEquals(e.Pointer.Captured, RootBorder))
-            e.Pointer.Capture(null);
-
-        if (!_reorderDragLaunched && _reorderPressPoint.HasValue)
-            OpenEditorOverlay();
-
-        ClearSketchReorderGestureState();
-    }
-
-    private void RootBorder_PointerCaptureLost(object? sender, PointerCaptureLostEventArgs e)
-    {
-        // Releasing capture to start DoDragDrop fires this — do not clear; RunSketchReorderDragAsync clears after drop.
+        // Releasing capture to start DoDragDrop fires this — TopLevel release still completes a click.
         if (_reorderDragLaunched)
             return;
+    }
+
+    private bool IsPointerWithinSketchChrome(PointerEventArgs e)
+    {
+        if (SketchChrome == null || e.Source is not Visual src)
+            return false;
+        if (ReferenceEquals(src, SketchChrome))
+            return true;
+        return src.GetVisualAncestors().Any(a => ReferenceEquals(a, SketchChrome));
+    }
+
+    private void RegisterSketchGestureTopLevelHandlers()
+    {
+        if (_gestureTopLevelHandlersActive)
+            return;
+
+        _gestureTopLevel ??= TopLevel.GetTopLevel(this);
+        if (_gestureTopLevel == null)
+            return;
+
+        _gesturePointerReleasedHandler ??= OnSketchGestureTopLevelPointerReleased;
+        _gesturePointerMovedHandler ??= OnSketchGestureTopLevelPointerMoved;
+        _gestureTopLevel.AddHandler(PointerReleasedEvent, _gesturePointerReleasedHandler, RoutingStrategies.Tunnel);
+        _gestureTopLevel.AddHandler(PointerMovedEvent, _gesturePointerMovedHandler, RoutingStrategies.Tunnel);
+        _gestureTopLevelHandlersActive = true;
+    }
+
+    private void UnregisterSketchGestureTopLevelHandlers()
+    {
+        if (!_gestureTopLevelHandlersActive || _gestureTopLevel == null)
+            return;
+
+        if (_gesturePointerReleasedHandler != null)
+            _gestureTopLevel.RemoveHandler(PointerReleasedEvent, _gesturePointerReleasedHandler);
+        if (_gesturePointerMovedHandler != null)
+            _gestureTopLevel.RemoveHandler(PointerMovedEvent, _gesturePointerMovedHandler);
+        _gestureTopLevelHandlersActive = false;
+    }
+
+    private void OnSketchGestureTopLevelPointerMoved(object? sender, PointerEventArgs e) =>
+        TryAdvanceSketchReorderDrag(e);
+
+    private void OnSketchGestureTopLevelPointerReleased(object? sender, PointerReleasedEventArgs e) =>
+        CompleteSketchClickGesture(e);
+
+    private void TryAdvanceSketchReorderDrag(PointerEventArgs e)
+    {
+        if (!_reorderPressPoint.HasValue || _reorderDragLaunched || SketchChrome == null)
+            return;
+        if (!e.GetCurrentPoint(this).Properties.IsLeftButtonPressed)
+            return;
+
+        var p = e.GetPosition(SketchChrome);
+        var origin = _reorderPressPoint.Value;
+        var dist = Math.Sqrt((p.X - origin.X) * (p.X - origin.X) + (p.Y - origin.Y) * (p.Y - origin.Y));
+        if (dist < SketchReorderDragThresholdPixels)
+            return;
+
+        _reorderDragLaunched = true;
+        _ = RunSketchReorderDragAsync();
+    }
+
+    private void CompleteSketchClickGesture(PointerReleasedEventArgs e)
+    {
+        if (!_reorderPressPoint.HasValue)
+            return;
+        if (e.InitialPressMouseButton != MouseButton.Left)
+            return;
+
+        if (SketchChrome != null && ReferenceEquals(e.Pointer.Captured, SketchChrome))
+            e.Pointer.Capture(null);
+
+        if (!_reorderDragLaunched)
+            OpenEditorOverlay();
+
         ClearSketchReorderGestureState();
     }
 
@@ -275,6 +332,7 @@ public partial class SketchBlockComponent : BlockComponentBase
         _reorderPressPoint = null;
         _reorderPressArgs = null;
         _reorderDragLaunched = false;
+        UnregisterSketchGestureTopLevelHandlers();
     }
 
     private async Task RunSketchReorderDragAsync()
@@ -284,7 +342,7 @@ public partial class SketchBlockComponent : BlockComponentBase
             if (_reorderPressArgs == null)
                 return;
 
-            if (ReferenceEquals(_reorderPressArgs.Pointer.Captured, RootBorder))
+            if (ReferenceEquals(_reorderPressArgs.Pointer.Captured, SketchChrome))
                 _reorderPressArgs.Pointer.Capture(null);
 
             var eb = this.GetVisualAncestors().OfType<EditableBlock>().FirstOrDefault();
@@ -299,7 +357,8 @@ public partial class SketchBlockComponent : BlockComponentBase
 
     private void OpenEditorOverlay()
     {
-        if (_subscribedViewModel == null)
+        var vm = ViewModel ?? _subscribedViewModel;
+        if (vm == null)
             return;
 
         _overlayService ??= (Application.Current as App)?.Services?.GetService<IOverlayService>();
@@ -310,7 +369,7 @@ public partial class SketchBlockComponent : BlockComponentBase
 
         var overlay = new SketchEditorOverlay
         {
-            Source = _subscribedViewModel.Content ?? string.Empty
+            Source = vm.Content ?? string.Empty
         };
         overlay.SaveRequested += SaveOverlaySource;
         overlay.CancelRequested += CloseOverlay;
@@ -697,14 +756,4 @@ public partial class SketchBlockComponent : BlockComponentBase
         vm.SketchWidth = width;
     }
 
-    private static bool IsVisualDescendantOf(Visual? node, Visual? ancestor)
-    {
-        if (node == null || ancestor == null) return false;
-        for (Visual? v = node; v != null; v = v.GetVisualParent())
-        {
-            if (ReferenceEquals(v, ancestor))
-                return true;
-        }
-        return false;
-    }
 }
