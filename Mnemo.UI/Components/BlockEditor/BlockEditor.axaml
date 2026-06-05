@@ -35,7 +35,11 @@
                         </ItemsRepeater.Layout>
                         <ItemsRepeater.ItemTemplate>
                             <DataTemplate>
-                                <ContentControl Content="{Binding}" HorizontalAlignment="Stretch" Padding="0" Margin="0">
+                                <ContentControl Content="{Binding}"
+                                                MinHeight="{Binding LayoutHeightHint}"
+                                                HorizontalAlignment="Stretch"
+                                                Padding="0"
+                                                Margin="0">
                                     <ContentControl.DataTemplates>
                                         <DataTemplate DataType="local:SingleBlockRowViewModel">
                                             <local:EditableBlock DataContext="{Binding Block}" />

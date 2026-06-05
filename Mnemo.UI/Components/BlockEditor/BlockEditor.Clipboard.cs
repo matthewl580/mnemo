@@ -242,6 +242,7 @@ public partial class BlockEditor
         var toRemove = doc.Where(b => b.IsSelected).ToList();
         if (toRemove.Count == 0) return;
 
+        // Important: wrap in Begin/CommitStructuralChange so undo restores the full pre-delete document state.
         BeginStructuralChange();
 
         var topLevel = toRemove.Where(b => b.OwnerTwoColumn == null).OrderByDescending(b => Blocks.IndexOf(b)).ToList();
@@ -780,6 +781,8 @@ public partial class BlockEditor
             if (pasted.Length > 0)
                 EditorClipboardDiagnostics.Log($"Paste: first block type={pasted[0].Type} {EditorClipboardDiagnostics.SummarizeSpans(pasted[0].Spans)}");
 
+            // Important: wrap paste in Begin/CommitStructuralChange; the snapshot captures the full
+            // pre-paste state including the focused block's spans and caret position.
             BeginStructuralChange();
 
             if (!replaceBlockSelection && pasted.Length >= 1)

@@ -368,6 +368,7 @@ public partial class BlockEditor
 
         int insertGapOriginal = _currentDropInsertIndex;
 
+        // Important: snapshot before reordering so undo restores original block positions.
         BeginStructuralChange();
         foreach (var idx in indices.OrderByDescending(i => i))
         {
@@ -396,6 +397,9 @@ public partial class BlockEditor
     {
         if (_currentDropInsertIndex < 0 || _currentDropInsertIndex > Blocks.Count)
             return false;
+        // Important: every reorder path below must be wrapped in a matched Begin/CommitStructuralChange pair
+        // so undo restores the pre-drop block order. The three cases (detach-from-column, paired-column-move,
+        // simple move) each capture their own snapshot.
         var draggedIndex = Blocks.IndexOf(draggedBlock);
         if (draggedIndex < 0)
         {

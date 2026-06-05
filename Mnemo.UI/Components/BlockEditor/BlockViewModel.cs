@@ -430,6 +430,13 @@ public class BlockViewModel : INotifyPropertyChanged
     /// Replace the entire run list (e.g. for undo/redo or deserialization).
     /// Normalizes and refreshes Content. Does not raise ContentChanged.
     /// </summary>
+    /// <remarks>
+    /// Important: does not raise <c>ContentChanged</c>, so it bypasses history tracking entirely.
+    /// Use only for undo/redo restore, initial load, and programmatic resets.
+    /// For live user edits (typing, paste, inline delete) use <see cref="CommitSpansFromEditor"/> instead —
+    /// that path records the pre-edit snapshot so TrackTypingEdit can build a TextEditOperation.
+    /// Mixing the two causes silent undo gaps or duplicate undo steps.
+    /// </remarks>
     public void SetSpans(IReadOnlyList<InlineSpan> runs)
     {
         _spans = InlineSpanFormatApplier.Normalize(runs);

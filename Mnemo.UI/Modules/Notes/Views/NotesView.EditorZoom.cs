@@ -32,6 +32,7 @@ public partial class NotesView
     private double _editorScrollbarDragRatio;
     private Size _lastEditorDocumentSizeForZoom;
 
+
     public void ResetEditorView()
     {
         EndEditorScrollPanIfNeeded();
@@ -327,6 +328,14 @@ public partial class NotesView
             Math.Clamp(cursorInViewport.X, 0, viewport.Width),
             Math.Clamp(cursorInViewport.Y, 0, viewport.Height));
 
+        // Vertical anchor: prefer a realized block under the cursor. Its real post-layout
+        // position is authoritative, so estimated heights of recycled blocks above the
+        // cursor (notably tall image blocks) cannot drag the camera around.
+        var cursorContentYOld = scroll.Offset.Y + cursorInViewport.Y;
+        var anchorVisual = FindEditorVerticalAnchor(outer, cursorContentYOld, oldZoom, out var anchorTopOld);
+        var haveAnchor = anchorVisual != null;
+        var anchorWithinUnscaled = haveAnchor ? (cursorContentYOld - anchorTopOld) / oldZoom : 0;
+
         var oldExtent = GetEditorZoomedExtentSize(oldZoom);
         var oldOuterWidth = outer.Width > 1 ? outer.Width : Math.Max(oldExtent.Width, viewport.Width);
         var oldHostX = NotesEditorCamera.HostCenteringX(oldOuterWidth, oldExtent.Width);
@@ -339,9 +348,92 @@ public partial class NotesView
         var newExtent = GetEditorZoomedExtentSize(newZoom);
         var newOuterWidth = outer.Width > 1 ? outer.Width : Math.Max(newExtent.Width, viewport.Width);
         var newHostX = NotesEditorCamera.HostCenteringX(newOuterWidth, newExtent.Width);
-        scroll.Offset = NotesEditorCamera.ScrollOffsetForZoomAnchor(newZoom, docPoint, cursorInViewport, newHostX);
-        ClampEditorScrollOffset();
+        var absolute = NotesEditorCamera.ScrollOffsetForZoomAnchor(newZoom, docPoint, cursorInViewport, newHostX);
+
+        if (!haveAnchor)
+        {
+            scroll.Offset = absolute;
+            ClampEditorScrollOffset();
+            e.Handled = true;
+            return;
+        }
+
+        // Converge the vertical anchor synchronously. Moving the offset re-realizes the
+        // virtualized list, which changes the estimated heights of recycled blocks above the
+        // anchor and therefore the anchor's real position. Iterating layout + re-anchor here
+        // (before any frame is rendered) settles on the final offset, so the user never sees
+        // the intermediate snap that a deferred correction would produce.
+        var targetX = absolute.X;
+        for (var i = 0; i < 6; i++)
+        {
+            if (!TryGetEditorVisualTop(anchorVisual!, outer, out var anchorTopNew))
+                break;
+
+            var desiredCursorContentY = anchorTopNew + anchorWithinUnscaled * newZoom;
+            var targetY = desiredCursorContentY - cursorInViewport.Y;
+            var clamped = NotesEditorCamera.ClampScrollOffset(
+                new Vector(targetX, targetY), scroll.Extent, scroll.Viewport);
+
+            if (Math.Abs(scroll.Offset.X - clamped.X) <= 0.5 && Math.Abs(scroll.Offset.Y - clamped.Y) <= 0.5)
+                break;
+
+            scroll.Offset = clamped;
+            scroll.UpdateLayout();
+        }
+
         e.Handled = true;
+    }
+
+    /// <summary>
+    /// Finds the realized block row whose vertical span (in <paramref name="outer"/> content space)
+    /// contains <paramref name="contentY"/>, falling back to the nearest realized row. Returns null
+    /// when no block is realized near the cursor (e.g. cursor over the title or empty page area).
+    /// </summary>
+    private Control? FindEditorVerticalAnchor(Border outer, double contentY, double zoom, out double anchorTop)
+    {
+        anchorTop = 0;
+        var editor = this.FindControl<BlockEditor>("NoteBlockEditor");
+        if (editor == null) return null;
+
+        Control? nearest = null;
+        var nearestTop = 0.0;
+        var nearestDistance = double.MaxValue;
+
+        foreach (var visual in editor.GetVisualDescendants())
+        {
+            if (visual is not EditableBlock && visual is not SplitBlockRowView)
+                continue;
+            if (visual is not Control control || control.Bounds.Height <= 0)
+                continue;
+            if (!TryGetEditorVisualTop(control, outer, out var top))
+                continue;
+
+            var bottom = top + control.Bounds.Height * zoom;
+            if (contentY >= top && contentY <= bottom)
+            {
+                anchorTop = top;
+                return control;
+            }
+
+            var distance = contentY < top ? top - contentY : contentY - bottom;
+            if (distance < nearestDistance)
+            {
+                nearestDistance = distance;
+                nearest = control;
+                nearestTop = top;
+            }
+        }
+
+        if (nearest != null)
+            anchorTop = nearestTop;
+        return nearest;
+    }
+
+    private static bool TryGetEditorVisualTop(Control visual, Visual relativeTo, out double top)
+    {
+        var point = visual.TranslatePoint(new Point(0, 0), relativeTo);
+        top = point?.Y ?? 0;
+        return point.HasValue;
     }
 
     private Size GetEditorDocumentNaturalSize(Panel doc)
@@ -366,6 +458,16 @@ public partial class NotesView
                 s = new Size(minW, s.Height);
         }
 
+        var editor = this.FindControl<BlockEditor>("NoteBlockEditor");
+        if (editor != null)
+        {
+            var blockFloor = editor.GetEstimatedBlockListHeight();
+            // Title + metadata + separator + block list (grid row 1 is * but measure uses content floor).
+            var docFloor = blockFloor + 120;
+            if (docFloor > s.Height + 0.5)
+                s = new Size(s.Width, docFloor);
+        }
+
         return s;
     }
 
@@ -385,6 +487,7 @@ public partial class NotesView
         host.Zoom = _editorCamera.Zoom;
         host.LayoutWidth = s.Width;
         SyncEditorScrollWidthHost();
+        this.FindControl<BlockEditor>("NoteBlockEditor")?.ApplyZoomVirtualizationPolicy(_editorCamera.Zoom);
         Dispatcher.UIThread.Post(ClampEditorScrollOffset, DispatcherPriority.Loaded);
     }
 

@@ -424,6 +424,7 @@ public partial class BlockEditor : UserControl, INotifyPropertyChanged, IEditorH
 
     private void RebuildBlockRows()
     {
+        ClearBlockRowHeightCache();
         if (Blocks.Count == 0)
         {
             _blockRows = new ObservableCollection<BlockRowViewModelBase>();
@@ -437,7 +438,9 @@ public partial class BlockEditor : UserControl, INotifyPropertyChanged, IEditorH
         // ctor copies into internal storage without per-item CollectionChanged â€” then we swap the
         // collection reference + INotifyPropertyChanged so ItemsRepeater updates once.
         _blockRows = new ObservableCollection<BlockRowViewModelBase>(rows);
+        RefreshAllRowLayoutHeightHints();
         OnPropertyChanged(nameof(BlockRows));
+        InvalidateBlockListMeasure();
     }
 
     private static BlockRowViewModelBase MakeRow(BlockViewModel block, int index) =>
@@ -477,6 +480,8 @@ public partial class BlockEditor : UserControl, INotifyPropertyChanged, IEditorH
     private void Editor_Loaded(object? sender, RoutedEventArgs e)
     {
         ResolveSelectionBoxBorder();
+        SetupBlockRowHeightVirtualization();
+        RefreshAllRowLayoutHeightHints();
 
         // Register global pointer handlers on TopLevel so we receive moves/releases
         // even when a child TextBox has captured the pointer for its own text selection.
@@ -492,6 +497,7 @@ public partial class BlockEditor : UserControl, INotifyPropertyChanged, IEditorH
 
     private void Editor_Unloaded(object? sender, RoutedEventArgs e)
     {
+        TeardownBlockRowHeightVirtualization();
         CloseFindPanel(clearQuery: false);
 
         if (_topLevel != null)
@@ -1378,6 +1384,9 @@ public partial class BlockEditor : UserControl, INotifyPropertyChanged, IEditorH
 
     private void OnBlockPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
+        if (sender is BlockViewModel layoutBlock)
+            OnBlockLayoutAffectingPropertyChanged(layoutBlock, e);
+
         if (e.PropertyName == nameof(BlockViewModel.Type))
         {
             // Keep the numbered-list set in sync. BlockViewModel doesn't expose the prior type,
