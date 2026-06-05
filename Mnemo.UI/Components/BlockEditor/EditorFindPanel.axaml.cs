@@ -4,15 +4,14 @@ using Avalonia.Interactivity;
 
 namespace Mnemo.UI.Components.BlockEditor;
 
-public partial class NoteFindPanel : UserControl
+public partial class EditorFindPanel : UserControl
 {
-    public NoteFindPanel()
+    public EditorFindPanel()
     {
         InitializeComponent();
         AddHandler(KeyDownEvent, OnRootTunnelKeyDown, RoutingStrategies.Tunnel);
     }
 
-    /// <summary>Host receives find/replace UI events (overlay is not in the block editor visual tree).</summary>
     public BlockEditor? EditorHost { get; set; }
 
     private void OnRootTunnelKeyDown(object? sender, KeyEventArgs e)
@@ -25,35 +24,35 @@ public partial class NoteFindPanel : UserControl
     }
 
     private void FindQueryTextBox_OnTextChanged(object? sender, TextChangedEventArgs e) =>
-        EditorHost?.OnNoteFindPanelFindQueryTextChanged(sender, e);
+        EditorHost?.OnEditorFindPanelFindQueryTextChanged(sender, e);
 
     private void ReplaceQueryTextBox_OnTextChanged(object? sender, TextChangedEventArgs e) =>
-        EditorHost?.OnNoteFindPanelReplaceQueryTextChanged(sender, e);
+        EditorHost?.OnEditorFindPanelReplaceQueryTextChanged(sender, e);
 
     private void FindOptionCheckBox_OnChanged(object? sender, RoutedEventArgs e) =>
-        EditorHost?.OnNoteFindPanelOptionChanged(sender, e);
+        EditorHost?.OnEditorFindPanelOptionChanged(sender, e);
 
     private void FindPreviousButton_OnClick(object? sender, RoutedEventArgs e) =>
-        EditorHost?.OnNoteFindPanelFindPreviousClick(sender, e);
+        EditorHost?.OnEditorFindPanelFindPreviousClick(sender, e);
 
     private void FindNextButton_OnClick(object? sender, RoutedEventArgs e) =>
-        EditorHost?.OnNoteFindPanelFindNextClick(sender, e);
+        EditorHost?.OnEditorFindPanelFindNextClick(sender, e);
 
     private void FindToggleReplaceButton_OnClick(object? sender, RoutedEventArgs e) =>
-        EditorHost?.OnNoteFindPanelToggleReplaceClick(sender, e);
+        EditorHost?.OnEditorFindPanelToggleReplaceClick(sender, e);
 
     private void FindCloseButton_OnClick(object? sender, RoutedEventArgs e) =>
-        EditorHost?.OnNoteFindPanelCloseClick(sender, e);
+        EditorHost?.OnEditorFindPanelCloseClick(sender, e);
 
     private void ReplaceCurrentButton_OnClick(object? sender, RoutedEventArgs e) =>
-        EditorHost?.OnNoteFindPanelReplaceCurrentClick(sender, e);
+        EditorHost?.OnEditorFindPanelReplaceCurrentClick(sender, e);
 
     private void ReplaceAllButton_OnClick(object? sender, RoutedEventArgs e) =>
-        EditorHost?.OnNoteFindPanelReplaceAllClick(sender, e);
+        EditorHost?.OnEditorFindPanelReplaceAllClick(sender, e);
 
     private void FindTextBox_OnKeyDown(object? sender, KeyEventArgs e) =>
-        EditorHost?.OnNoteFindPanelFindTextKeyDown(sender, e);
+        EditorHost?.OnEditorFindPanelFindTextKeyDown(sender, e);
 
     private void ReplaceTextBox_OnKeyDown(object? sender, KeyEventArgs e) =>
-        EditorHost?.OnNoteFindPanelReplaceTextKeyDown(sender, e);
+        EditorHost?.OnEditorFindPanelReplaceTextKeyDown(sender, e);
 }

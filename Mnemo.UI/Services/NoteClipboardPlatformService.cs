@@ -8,7 +8,7 @@ namespace Mnemo.UI.Services;
 public sealed class NoteClipboardPlatformService : INoteClipboardPlatformService
 {
     private static readonly DataFormat<string> MnemoJsonDataFormat =
-        DataFormat.CreateStringApplicationFormat(NoteClipboardFormats.MnemoNoteBlocksJson);
+        DataFormat.CreateStringApplicationFormat(EditorClipboardFormats.MnemoNoteBlocksJson);
 
     public async Task WriteAsync(IClipboard clipboard, string markdown, string mnemoJson, Bitmap? clipboardBitmap = null)
     {
@@ -28,7 +28,7 @@ public sealed class NoteClipboardPlatformService : INoteClipboardPlatformService
         }
 
         await clipboard.SetDataAsync(transfer).ConfigureAwait(true);
-        NoteClipboardDiagnostics.Log(
+        EditorClipboardDiagnostics.Log(
             $"Write: markdownLen={markdown?.Length ?? 0} jsonLen={mnemoJson?.Length ?? 0}");
         try
         {
@@ -117,7 +117,7 @@ public sealed class NoteClipboardPlatformService : INoteClipboardPlatformService
             }
         }
 
-        NoteClipboardDiagnostics.Log(
+        EditorClipboardDiagnostics.Log(
             $"Read: mnemoJson={(mnemo != null ? $"len={mnemo.Length}" : "null")} textLen={text?.Length ?? 0}");
         return new NoteClipboardReadData(mnemo, text);
     }

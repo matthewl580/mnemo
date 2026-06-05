@@ -10,7 +10,7 @@ namespace Mnemo.UI.Components.BlockEditor;
 /// Opt-in clipboard tracing. Set environment variable <c>MNEMO_CLIPBOARD_LOG=1</c> before launch;
 /// output goes to <see cref="Trace"/> (Debug / dotnet trace listeners).
 /// </summary>
-internal static class NoteClipboardDiagnostics
+internal static class EditorClipboardDiagnostics
 {
     internal static bool IsEnabled =>
         string.Equals(Environment.GetEnvironmentVariable("MNEMO_CLIPBOARD_LOG"), "1", StringComparison.OrdinalIgnoreCase);

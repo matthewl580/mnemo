@@ -2,7 +2,7 @@ using System.Collections.Generic;
 using System.Linq;
 using Mnemo.Core.Models;
 
-namespace Mnemo.UI.Modules.Notes.Operations;
+namespace Mnemo.UI.Components.BlockEditor.History;
 
 /// <summary>
 /// Deep-copy snapshot of a Block for undo state. Stores inline spans
@@ -16,7 +16,6 @@ public sealed class BlockSnapshot
     public BlockPayload Payload { get; }
     public Dictionary<string, object> Meta { get; }
     public int Order { get; }
-    /// <summary>Nested blocks (e.g. <see cref="BlockType.TwoColumn"/>).</summary>
     public BlockSnapshot[]? Children { get; }
 
     public BlockSnapshot(
@@ -70,10 +69,6 @@ public sealed class BlockSnapshot
         blocks.Select(From).ToArray();
 }
 
-/// <summary>
-/// Captures caret/selection state so undo feels correct after merges/splits.
-/// Uses <see cref="BlockId"/> so nested blocks inside a split are addressable.
-/// </summary>
 public sealed class CaretState
 {
     public string BlockId { get; init; } = "";

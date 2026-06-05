@@ -1,6 +1,6 @@
 namespace Mnemo.UI.Components.BlockEditor;
 
-public static class NoteClipboardFormats
+public static class EditorClipboardFormats
 {
     /// <summary>
     /// Application clipboard id for structured note payload (UTF-8 JSON).

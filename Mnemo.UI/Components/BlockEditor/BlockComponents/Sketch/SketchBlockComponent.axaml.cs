@@ -491,7 +491,7 @@ public partial class SketchBlockComponent : BlockComponentBase
         {
             var list = new List<BlockViewModel> { vm };
             var markdown = BlockMarkdownSerializer.Serialize(list);
-            var json = codec.Serialize(NoteClipboardMapper.ToDocument(list));
+            var json = codec.Serialize(EditorClipboardMapper.ToDocument(list));
             await noteSvc.WriteAsync(topLevel.Clipboard, markdown, json, null).ConfigureAwait(true);
             return;
         }

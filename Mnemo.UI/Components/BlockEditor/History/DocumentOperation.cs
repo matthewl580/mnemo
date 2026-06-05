@@ -3,12 +3,10 @@ using System.Threading.Tasks;
 using Mnemo.Core.History;
 using Mnemo.Core.Models;
 
-namespace Mnemo.UI.Modules.Notes.Operations;
+namespace Mnemo.UI.Components.BlockEditor.History;
 
 /// <summary>
-/// Whole-document snapshot operation. Captures the full block list before and after
-/// a mutation so undo/redo can restore any structural change (insert, delete, merge,
-/// move, type-change, paste, multi-block delete, etc.) in one step.
+/// Whole-document snapshot operation for structural undo/redo.
 /// </summary>
 public class DocumentOperation : IHistoryOperation
 {

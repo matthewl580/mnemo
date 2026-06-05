@@ -974,7 +974,7 @@ public partial class ImageBlockComponent : BlockComponentBase
         {
             var list = new List<BlockViewModel> { vm };
             var markdown = BlockMarkdownSerializer.Serialize(list);
-            var json = codec.Serialize(NoteClipboardMapper.ToDocument(list));
+            var json = codec.Serialize(EditorClipboardMapper.ToDocument(list));
             Bitmap? bmp = null;
             try
             {

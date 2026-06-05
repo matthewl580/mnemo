@@ -4,11 +4,10 @@ using System.Threading.Tasks;
 using Mnemo.Core.History;
 using Mnemo.Core.Models;
 
-namespace Mnemo.UI.Modules.Notes.Operations;
+namespace Mnemo.UI.Components.BlockEditor.History;
 
 /// <summary>
-/// Captures a batched text edit within a single block (typing session).
-/// Stores inline spans so formatting is preserved across undo/redo.
+/// Batched text edit within a single block (typing session).
 /// </summary>
 public class TextEditOperation : IHistoryOperation
 {
@@ -22,7 +21,6 @@ public class TextEditOperation : IHistoryOperation
     public string Description { get; }
     public OperationSource Source => OperationSource.NotesEditor;
 
-    /// <param name="restoreSpans">Callback: (blockId, spans, caretState) => apply to live document.</param>
     public TextEditOperation(
         string description,
         string blockId,

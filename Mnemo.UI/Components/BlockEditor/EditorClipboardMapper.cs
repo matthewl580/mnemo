@@ -9,7 +9,7 @@ using Mnemo.Infrastructure.Services.Notes.Markdown;
 
 namespace Mnemo.UI.Components.BlockEditor;
 
-public static class NoteClipboardMapper
+public static class EditorClipboardMapper
 {
     public static NoteClipboardDocument ToDocument(IEnumerable<BlockViewModel> blocks)
     {

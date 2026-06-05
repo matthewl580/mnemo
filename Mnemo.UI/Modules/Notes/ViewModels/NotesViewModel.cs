@@ -1,38 +1,33 @@
 using System;
-using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
-using System.Text.Json;
 using System.Threading.Tasks;
 using Avalonia.Input;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using Mnemo.Core.History;
 using Mnemo.Core.Models;
-using Mnemo.Core.Models.Statistics;
 using Mnemo.Core.Services;
-using Mnemo.Infrastructure.Services.Statistics;
 using Mnemo.UI.Input;
+using Mnemo.UI.Modules.Notes.Services;
 using Mnemo.UI.ViewModels;
 
 namespace Mnemo.UI.Modules.Notes.ViewModels;
 
 public partial class NotesViewModel : ViewModelBase, INavigationAware
 {
-    private const string LastOpenNoteIdKey = "Notes.LastOpenNoteId";
-    private const string NotesSidebarOpenKey = "Notes.SidebarOpen";
-    private const string NotesExpandedFolderIdsKey = "Notes.ExpandedFolderIds";
-
-    /// <summary>
-    /// When navigation passes a note id (e.g. AI <c>open_note</c>), select that note after load instead of the last saved selection.
-    /// </summary>
     private string? _pendingOpenNoteIdAfterLoad;
+    private bool _sidebarStateLoaded;
 
+    private readonly NotesLibrarySession _library;
+    private readonly NotesEditorSession _editor;
+    private readonly NotesTreeMutator _treeMutator;
+    private readonly NotesDocumentMutator _documentMutator;
+    private readonly NotesEditorHistory _history;
     private readonly INoteService _noteService;
     private readonly INoteFolderService _folderService;
     private readonly ISettingsService _settingsService;
     private readonly ILocalizationService _localizationService;
-    private readonly IStatisticsManager _statistics;
-    private readonly ILoggerService _logger;
 
     [ObservableProperty]
     private Note? _selectedNote;
@@ -40,32 +35,11 @@ public partial class NotesViewModel : ViewModelBase, INavigationAware
     [ObservableProperty]
     private string _selectedNoteTitle = string.Empty;
 
-    /// <summary>
-    /// Last selected tree item that was a note (used to keep selection when clicking folders).
-    /// </summary>
-    private NoteTreeItemViewModel? _lastSelectedNoteTreeItem;
-
-    /// <summary>
-    /// Guard flag: suppresses SelectedNote changes caused by collection rebuilds (e.g. RefreshFavouriteNotes).
-    /// </summary>
-    private bool _isRefreshingCollections;
-
-    /// <summary>When true, clearing <see cref="SelectedTreeItem"/> must not clear <see cref="SelectedNote"/> (e.g. opening a nested page from a page block not listed in the sidebar).</summary>
-    private bool _suppressSelectedNoteClearOnTreeItemNull;
-
-    /// <summary>Notes shown in the folder tree / flat sidebar lists. Child pages from page blocks are editor-only.</summary>
-    private static bool IsSidebarListedNote(Note n) => string.IsNullOrEmpty(n.ParentNoteId);
-
     [ObservableProperty]
     private NoteTreeItemViewModel? _selectedTreeItem;
 
     [ObservableProperty]
     private bool _isLoading = true;
-
-    /// <summary>
-    /// Breadcrumb view model for the note hierarchy navigation (supports nested page breadcrumbs with overflow).
-    /// </summary>
-    public NoteBreadcrumbViewModel NoteBreadcrumb { get; }
 
     [ObservableProperty]
     private string _createdText = string.Empty;
@@ -73,70 +47,89 @@ public partial class NotesViewModel : ViewModelBase, INavigationAware
     [ObservableProperty]
     private string _modifiedText = string.Empty;
 
-    /// <summary>
-    /// Whether the current note is a favorite (for binding star icon; mirrors SelectedNote.IsFavorite).
-    /// </summary>
     [ObservableProperty]
     private bool _isFavorite;
 
-    /// <summary>
-    /// Root items for the sidebar tree (folders and root-level notes).
-    /// </summary>
-    public ObservableCollection<NoteTreeItemViewModel> RootTreeItems { get; } = new();
-
-    /// <summary>
-    /// Flat list of all notes (for backward compatibility and when tree is not used).
-    /// </summary>
-    public ObservableCollection<Note> Notes { get; } = new();
-
-    /// <summary>
-    /// Favourite notes shown in the sidebar.
-    /// </summary>
-    public ObservableCollection<NoteTreeItemViewModel> FavouriteNotes { get; } = new();
-
-    /// <summary>
-    /// Flat list of all notes for the "My Notes" sidebar section (ensures every note is visible).
-    /// </summary>
-    public ObservableCollection<NoteTreeItemViewModel> AllNotesTreeItems { get; } = new();
-
-    /// <summary>
-    /// Flattened list of all tree items (folders + notes at all levels) for ListBox display.
-    /// </summary>
-    public ObservableCollection<NoteTreeItemViewModel> FlattenedTreeItems { get; } = new();
-
-    /// <summary>
-    /// Number of deleted notes (placeholder until soft-delete is implemented).
-    /// </summary>
     [ObservableProperty]
     private int _deletedCount;
 
-    private Dictionary<string, NoteFolder> _foldersById = new();
+    public NoteBreadcrumbViewModel NoteBreadcrumb { get; }
+    public NotesEditorSettings EditorSettings { get; } = new();
 
-    /// <summary>Authoritative expanded folder ids (updated synchronously on expand/collapse; not derived from the tree).</summary>
-    private HashSet<string> _expandedFolderIds = new(StringComparer.Ordinal);
+    public bool CanUndo => _history.CanUndo;
+    public bool CanRedo => _history.CanRedo;
+    public IHistoryManager EditorHistory => _history.Manager;
 
-    private bool _suppressExpandFolderPersistence;
+    public ObservableCollection<NoteTreeItemViewModel> RootTreeItems => _library.RootTreeItems;
+    public ObservableCollection<Note> Notes => _library.Notes;
+    public ObservableCollection<NoteTreeItemViewModel> FavouriteNotes => _library.FavouriteNotes;
+    public ObservableCollection<NoteTreeItemViewModel> AllNotesTreeItems => _library.AllNotesTreeItems;
+    public ObservableCollection<NoteTreeItemViewModel> FlattenedTreeItems => _library.FlattenedTreeItems;
 
-    public NotesViewModel(INoteService noteService, INoteFolderService folderService, ISettingsService settingsService, ILocalizationService localizationService, IStatisticsManager statistics, ILoggerService logger)
+    public double EditorMaxWidth
     {
+        get => EditorSettings.EditorMaxWidth;
+        set => EditorSettings.EditorMaxWidth = value;
+    }
+
+    public bool IsSidebarOpen
+    {
+        get => EditorSettings.IsSidebarOpen;
+        set => EditorSettings.IsSidebarOpen = value;
+    }
+
+    public const string NoteTreeItemDragKey = NotesEditorConstants.NoteTreeItemDragKey;
+
+    public static readonly DataFormat<NoteTreeItemViewModel> NoteTreeItemDragDataFormat =
+        AvaloniaDataFormats.CreateApplicationFormat<NoteTreeItemViewModel>(NoteTreeItemDragKey);
+
+    public NotesViewModel(
+        NotesLibrarySession library,
+        NotesEditorSession editor,
+        NotesTreeMutator treeMutator,
+        NotesDocumentMutator documentMutator,
+        NotesEditorHistory history,
+        INoteService noteService,
+        INoteFolderService folderService,
+        ISettingsService settingsService,
+        ILocalizationService localizationService)
+    {
+        _library = library;
+        _editor = editor;
+        _treeMutator = treeMutator;
+        _documentMutator = documentMutator;
+        _history = history;
         _noteService = noteService;
         _folderService = folderService;
         _settingsService = settingsService;
         _localizationService = localizationService;
-        _statistics = statistics;
-        _logger = logger;
 
         NoteBreadcrumb = new NoteBreadcrumbViewModel(() => Notes, folderService, NavigateToNoteById);
 
+        _history.StateChanged += () =>
+        {
+            OnPropertyChanged(nameof(CanUndo));
+            OnPropertyChanged(nameof(CanRedo));
+        };
+
         _settingsService.SettingChanged += OnSettingChanged;
+        EditorSettings.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(NotesEditorSettings.EditorMaxWidth))
+                OnPropertyChanged(nameof(EditorMaxWidth));
+            if (e.PropertyName == nameof(NotesEditorSettings.IsSidebarOpen))
+            {
+                OnPropertyChanged(nameof(IsSidebarOpen));
+                if (_sidebarStateLoaded)
+                    _ = _settingsService.SetAsync(NotesEditorConstants.NotesSidebarOpenKey, EditorSettings.IsSidebarOpen);
+            }
+        };
     }
 
     private void OnSettingChanged(object? sender, string key)
     {
-        if (key == "Editor.Width")
-        {
+        if (key == NotesEditorConstants.EditorWidthKey)
             _ = UpdateEditorWidthAsync();
-        }
     }
 
     [RelayCommand]
@@ -149,16 +142,13 @@ public partial class NotesViewModel : ViewModelBase, INavigationAware
             var folders = (await _folderService.GetAllFoldersAsync()).ToList();
             var notes = (await _noteService.GetAllNotesAsync()).ToList();
 
-            _foldersById = folders.ToDictionary(f => f.FolderId);
+            _library.SetFolders(folders);
+            _library.SetNotes(notes);
 
-            Notes.Clear();
-            foreach (var n in notes)
-                Notes.Add(n);
-
-            await LoadExpandedFolderIdsFromSettingsAsync();
-            await BuildTreeAsync(folders, notes);
-            RefreshAllNotesFlatList(notes);
-            RefreshFavouriteNotes();
+            await _library.LoadExpandedFolderIdsFromSettingsAsync();
+            await _library.BuildTreeAsync(folders, notes);
+            _library.RefreshAllNotesFlatList(notes);
+            _library.RefreshFavouriteNotes();
 
             string? noteIdToSelect = null;
             if (!string.IsNullOrWhiteSpace(_pendingOpenNoteIdAfterLoad))
@@ -168,12 +158,12 @@ public partial class NotesViewModel : ViewModelBase, INavigationAware
             }
             else
             {
-                noteIdToSelect = await _settingsService.GetAsync<string?>(LastOpenNoteIdKey, null);
+                noteIdToSelect = await _settingsService.GetAsync<string?>(NotesEditorConstants.LastOpenNoteIdKey, null);
             }
 
             if (!string.IsNullOrEmpty(noteIdToSelect))
             {
-                var matchingItem = FindTreeItemByNoteId(RootTreeItems, noteIdToSelect);
+                var matchingItem = NotesLibrarySession.FindTreeItemByNoteId(RootTreeItems, noteIdToSelect);
                 if (matchingItem == null)
                     matchingItem = FavouriteNotes.FirstOrDefault(i => i.Note?.NoteId == noteIdToSelect);
                 if (matchingItem == null)
@@ -184,7 +174,7 @@ public partial class NotesViewModel : ViewModelBase, INavigationAware
                     NavigateToNoteById(noteIdToSelect);
             }
 
-            var sidebarOpen = await _settingsService.GetAsync(NotesSidebarOpenKey, true);
+            var sidebarOpen = await _settingsService.GetAsync(NotesEditorConstants.NotesSidebarOpenKey, true);
             _sidebarStateLoaded = false;
             IsSidebarOpen = sidebarOpen;
             _sidebarStateLoaded = true;
@@ -195,971 +185,146 @@ public partial class NotesViewModel : ViewModelBase, INavigationAware
         }
     }
 
-    private void RefreshAllNotesFlatList(List<Note>? notes = null)
-    {
-        var list = notes ?? Notes.ToList();
-        AllNotesTreeItems.Clear();
-        foreach (var note in list.Where(IsSidebarListedNote).OrderByDescending(n => n.ModifiedAt))
-            AllNotesTreeItems.Add(new NoteTreeItemViewModel(note));
-    }
-
-    private void RefreshFlattenedTreeItems()
-    {
-        FlattenedTreeItems.Clear();
-        foreach (var item in RootTreeItems)
-            FlattenRecursive(item, FlattenedTreeItems);
-    }
-
-    private static void FlattenRecursive(NoteTreeItemViewModel item, ObservableCollection<NoteTreeItemViewModel> target)
-    {
-        target.Add(item);
-        foreach (var child in item.Children)
-            FlattenRecursive(child, target);
-    }
-
-    private void RefreshFavouriteNotes()
-    {
-        _isRefreshingCollections = true;
-        try
-        {
-            FavouriteNotes.Clear();
-            foreach (var note in Notes.Where(n => n.IsFavorite && IsSidebarListedNote(n)).OrderByDescending(n => n.ModifiedAt))
-                FavouriteNotes.Add(new NoteTreeItemViewModel(note));
-        }
-        finally
-        {
-            _isRefreshingCollections = false;
-        }
-    }
-
-    private async Task BuildTreeAsync(List<NoteFolder> folders, List<Note> notes)
-    {
-        var folderIdsValid = new HashSet<string>(folders.Select(f => f.FolderId), StringComparer.Ordinal);
-        _expandedFolderIds.IntersectWith(folderIdsValid);
-
-        var expandedFolderIds = new HashSet<string>(_expandedFolderIds, StringComparer.Ordinal);
-
-        RootTreeItems.Clear();
-
-        var folderIds = new HashSet<string>(folders.Select(f => f.FolderId));
-        var rootFolders = folders
-            .Where(f => string.IsNullOrEmpty(f.ParentId))
-            .OrderBy(f => f.Order).ThenBy(f => f.Name)
-            .ToList();
-        var rootNotes = notes
-            .Where(n => string.IsNullOrEmpty(n.FolderId) && IsSidebarListedNote(n))
-            .OrderBy(n => n.Order)
-            .ThenByDescending(n => n.ModifiedAt)
-            .ToList();
-        var orphanNotes = notes
-            .Where(n => !string.IsNullOrEmpty(n.FolderId) && !folderIds.Contains(n.FolderId) && IsSidebarListedNote(n))
-            .OrderByDescending(n => n.ModifiedAt)
-            .ToList();
-
-        _suppressExpandFolderPersistence = true;
-        try
-        {
-            // Folders first (with their nested children)
-            foreach (var f in rootFolders)
-            {
-                var node = new NoteTreeItemViewModel(f, OnFolderExpandedChanged);
-                AddChildren(node, f.FolderId, folders, notes);
-                RootTreeItems.Add(node);
-            }
-
-            // Notes without a folder appear directly at root level (no synthetic wrapper needed)
-            foreach (var n in rootNotes.Concat(orphanNotes).OrderBy(n => n.Order).ThenByDescending(n => n.ModifiedAt))
-                RootTreeItems.Add(new NoteTreeItemViewModel(n));
-
-            RestoreExpanded(RootTreeItems, expandedFolderIds);
-        }
-        finally
-        {
-            _suppressExpandFolderPersistence = false;
-        }
-
-        await SaveExpandedFolderIdsToSettingsAsync();
-    }
-
-    private void OnFolderExpandedChanged(string folderId, bool isExpanded)
-    {
-        if (_suppressExpandFolderPersistence) return;
-        if (isExpanded)
-            _expandedFolderIds.Add(folderId);
-        else
-            _expandedFolderIds.Remove(folderId);
-        _ = SaveExpandedFolderIdsToSettingsAsync();
-    }
-
-    private async Task SaveExpandedFolderIdsToSettingsAsync()
-    {
-        var ids = _expandedFolderIds.OrderBy(s => s, StringComparer.Ordinal).ToArray();
-        var json = JsonSerializer.Serialize(ids);
-        await _settingsService.SetAsync(NotesExpandedFolderIdsKey, json);
-    }
-
-    private async Task LoadExpandedFolderIdsFromSettingsAsync()
-    {
-        _expandedFolderIds = new HashSet<string>(StringComparer.Ordinal);
-        var json = await _settingsService.GetAsync<string?>(NotesExpandedFolderIdsKey, null);
-        if (string.IsNullOrWhiteSpace(json)) return;
-        try
-        {
-            var ids = JsonSerializer.Deserialize<string[]>(json);
-            if (ids == null) return;
-            foreach (var id in ids)
-            {
-                if (!string.IsNullOrEmpty(id))
-                    _expandedFolderIds.Add(id);
-            }
-        }
-        catch
-        {
-            // keep empty
-        }
-    }
-
-    private static void RestoreExpanded(ObservableCollection<NoteTreeItemViewModel> root, HashSet<string> expandedIds)
-    {
-        foreach (var item in root)
-        {
-            if (item.IsFolder && item.FolderId != null)
-                item.IsExpanded = expandedIds.Contains(item.FolderId);
-            RestoreExpanded(item.Children, expandedIds);
-        }
-    }
-
-    private void AddChildren(NoteTreeItemViewModel node, string parentFolderId, List<NoteFolder> folders, List<Note> notes)
-    {
-        var childFolders = folders.Where(f => f.ParentId == parentFolderId).OrderBy(f => f.Order).ThenBy(f => f.Name).ToList();
-        var childNotes = notes.Where(n => n.FolderId == parentFolderId && IsSidebarListedNote(n)).OrderBy(n => n.Order).ThenByDescending(n => n.ModifiedAt).ToList();
-
-        foreach (var f in childFolders)
-        {
-            var childNode = new NoteTreeItemViewModel(f, OnFolderExpandedChanged);
-            AddChildren(childNode, f.FolderId, folders, notes);
-            node.Children.Add(childNode);
-        }
-
-        foreach (var n in childNotes)
-            node.Children.Add(new NoteTreeItemViewModel(n));
-    }
-
-    partial void OnSelectedNoteTitleChanged(string value)
-    {
-        if (SelectedNote == null) return;
-        if (SelectedNote.Title == value) return;
-        SelectedNote.Title = value;
-        RefreshBreadcrumbText();
-    }
-
-    partial void OnSelectedTreeItemChanged(NoteTreeItemViewModel? value)
-    {
-        // Folders are not selectable: if TreeView selected a folder, revert to last selected note.
-        if (value != null && value.IsFolder)
-        {
-            SelectedTreeItem = _lastSelectedNoteTreeItem;
-            return;
-        }
-
-        // Ignore null changes caused by collection rebuilds (e.g. RefreshFavouriteNotes clearing TreeView)
-        if (value == null && _isRefreshingCollections)
-            return;
-
-        if (value == null && _suppressSelectedNoteClearOnTreeItemNull)
-            return;
-
-        if (value == null)
-        {
-            _lastSelectedNoteTreeItem = null;
-            SelectedNote = null;
-        }
-        else if (value.Note != null)
-        {
-            _lastSelectedNoteTreeItem = value;
-            SelectedNote = value.Note;
-        }
-        else
-        {
-            SelectedNote = null;
-        }
-    }
-
-    partial void OnSelectedNoteChanged(Note? value)
-    {
-        if (value == null)
-        {
-            NoteBreadcrumb.BuildForNote(null, _foldersById);
-            CreatedText = string.Empty;
-            ModifiedText = string.Empty;
-            IsFavorite = false;
-            SelectedNoteTitle = string.Empty;
-            return;
-        }
-
-        var title = value.Title ?? string.Empty;
-        if (SelectedNoteTitle != title)
-            SelectedNoteTitle = title;
-
-        _ = _settingsService.SetAsync(LastOpenNoteIdKey, value.NoteId);
-
-        IsFavorite = value.IsFavorite;
-
-        NoteBreadcrumb.BuildForNote(value, _foldersById);
-
-        CreatedText = FormatRelative(value.CreatedAt, "Created", "Notes");
-        ModifiedText = FormatRelative(value.ModifiedAt, "LastModified", "Notes");
-    }
-
-    private void RefreshBreadcrumbText()
-    {
-        if (SelectedNote == null) return;
-        NoteBreadcrumb.BuildForNote(SelectedNote, _foldersById);
-    }
-
-    private List<string> GetFolderPath(NoteFolder folder)
-    {
-        var path = new List<string> { folder.Name };
-        var current = folder;
-        while (!string.IsNullOrEmpty(current.ParentId) && _foldersById.TryGetValue(current.ParentId, out var parent))
-        {
-            path.Insert(0, parent.Name);
-            current = parent;
-        }
-        return path;
-    }
-
-    /// <summary>
-    /// Persists the current note's blocks and title. Call from view when block editor or title changes.
-    /// </summary>
     public async Task SaveCurrentNoteAsync(Block[]? blocks, string? title = null)
     {
         if (SelectedNote == null) return;
         await SaveNoteWithContentAsync(SelectedNote, blocks, title);
     }
 
-    /// <summary>
-    /// Persists a specific note's blocks/title. Used when flushing pending save after note switch (editor still has previous note's content).
-    /// </summary>
     public async Task SaveNoteWithContentAsync(Note note, Block[]? blocks, string? title = null)
     {
-        if (note == null) return;
-
-        if (title != null)
+        await _documentMutator.SaveNoteWithContentAsync(note, blocks, title);
+        if (title != null && SelectedNote == note)
         {
-            note.Title = title;
-            NotifyTreeItemsForNoteTitleChanged(note);
-            if (SelectedNote == note)
-            {
-                if (SelectedNoteTitle != note.Title)
-                    SelectedNoteTitle = note.Title;
-                RefreshBreadcrumbText();
-            }
-        }
-
-        if (blocks != null)
-        {
-            note.Blocks = blocks.Length > 0 ? blocks.ToList() : new List<Block>();
-            note.Content = "";
-        }
-
-        await _noteService.SaveNoteAsync(note);
-        if (blocks != null || title != null)
-        {
-            _ = StatisticsRecorder.IncrementDailyCounterAsync(_statistics, _logger,
-                StatisticsNamespaces.Notes, NoteStatKinds.DailySummary, "notes_edited");
-            _ = StatisticsRecorder.IncrementLifetimeAsync(_statistics, _logger,
-                StatisticsNamespaces.Notes, NoteStatKinds.LifetimeTotals, "total_notes_edited");
+            if (SelectedNoteTitle != note.Title)
+                SelectedNoteTitle = note.Title;
+            RefreshBreadcrumbText();
         }
         if (SelectedNote == note)
             ModifiedText = FormatRelative(note.ModifiedAt, "LastModified", "Notes");
     }
 
-    /// <summary>
-    /// Notifies all tree items that wrap the given note so the sidebar updates the displayed title.
-    /// </summary>
-    private void NotifyTreeItemsForNoteTitleChanged(Note note)
-    {
-        foreach (var item in FlattenedTreeItems.Where(i => i.Note == note))
-            item.NotifyNameChanged();
-        foreach (var item in FavouriteNotes.Where(i => i.Note == note))
-            item.NotifyNameChanged();
-        foreach (var item in AllNotesTreeItems.Where(i => i.Note == note))
-            item.NotifyNameChanged();
-    }
+    public Block[] GetBlocksForCurrentNote() => _editor.GetBlocksForCurrentNote(SelectedNote);
 
-    /// <summary>
-    /// Returns blocks for the current note: either Note.Blocks or a single text block from Content.
-    /// </summary>
-    public Block[] GetBlocksForCurrentNote()
-    {
-        if (SelectedNote == null) return Array.Empty<Block>();
+    public string? ResolveNoteTitleForPageBlock(string noteId) =>
+        _editor.ResolveNoteTitleForPageBlock(noteId);
 
-        if (SelectedNote.Blocks != null && SelectedNote.Blocks.Count > 0)
+    public int CountDirectChildPagesForNote(string noteId) =>
+        _editor.CountDirectChildPagesForNote(noteId);
+
+    public async Task<string?> CreateChildPageNoteUnderParentAsync(string parentNoteId) =>
+        await _documentMutator.CreateChildPageNoteUnderParentAsync(parentNoteId);
+
+    public void NavigateToNoteById(string? noteId)
+    {
+        if (string.IsNullOrWhiteSpace(noteId)) return;
+        var result = _editor.ResolveNavigation(noteId.Trim());
+        if (result.IsNotFound) return;
+
+        if (result.TreeItem != null)
         {
-            var ordered = SelectedNote.Blocks.OrderBy(b => b.Order).ToArray();
-            for (var i = 0; i < ordered.Length; i++)
-                ordered[i].Order = i;
-            return ordered;
+            SelectedTreeItem = result.TreeItem;
+            return;
         }
 
-        return new[]
+        if (result.OffTreeNote != null)
         {
-            new Block
+            _editor.SuppressSelectedNoteClearOnTreeItemNull = true;
+            try
             {
-                Id = Guid.NewGuid().ToString(),
-                Type = BlockType.Text,
-                Spans = new List<InlineSpan> { InlineSpan.Plain(SelectedNote.Content ?? "") },
-                Order = 0
+                SelectedNote = result.OffTreeNote;
+                SelectedTreeItem = null;
             }
-        };
-    }
-
-    private bool _sidebarStateLoaded = false;
-
-    [ObservableProperty]
-    private bool _isSidebarOpen = false;
-
-    partial void OnIsSidebarOpenChanged(bool value)
-    {
-        if (_sidebarStateLoaded)
-            _ = _settingsService.SetAsync(NotesSidebarOpenKey, value);
-    }
-
-    [RelayCommand]
-    private void ToggleSidebar()
-    {
-        IsSidebarOpen = !IsSidebarOpen;
+            finally
+            {
+                _editor.SuppressSelectedNoteClearOnTreeItemNull = false;
+            }
+            _editor.LastSelectedNoteTreeItem = null;
+        }
     }
 
     [RelayCommand]
     private async Task NewNoteAsync(NoteTreeItemViewModel? context)
     {
-        var parentFolderId = ResolveCreationFolderId(context);
-        var note = new Note
-        {
-            Title = "Untitled",
-            FolderId = parentFolderId,
-            FolderPath = BuildFolderPath(parentFolderId),
-            Order = GetNextNoteOrder(parentFolderId)
-        };
-
-        Notes.Add(note);
-        var result = await _noteService.SaveNoteAsync(note);
-        if (!result.IsSuccess)
-        {
-            Notes.Remove(note);
-            return;
-        }
-
-        if (!string.IsNullOrEmpty(parentFolderId))
-            _expandedFolderIds.Add(parentFolderId);
-
-        await BuildTreeAsync(_foldersById.Values.ToList(), Notes.ToList());
-        RefreshAllNotesFlatList();
-        RefreshFlattenedTreeItems();
-        RefreshFavouriteNotes();
-
-        var item = FindTreeItemByNoteId(RootTreeItems, note.NoteId)
-            ?? AllNotesTreeItems.FirstOrDefault(i => i.Note?.NoteId == note.NoteId);
-        if (item != null)
-            SelectedTreeItem = item;
-        SelectedNote = note;
-
-        _ = StatisticsRecorder.IncrementDailyCounterAsync(_statistics, _logger,
-            StatisticsNamespaces.Notes, NoteStatKinds.DailySummary, "notes_created");
-        _ = StatisticsRecorder.IncrementLifetimeAsync(_statistics, _logger,
-            StatisticsNamespaces.Notes, NoteStatKinds.LifetimeTotals, "total_notes_created");
-    }
-
-    public string? ResolveNoteTitleForPageBlock(string noteId)
-    {
-        if (string.IsNullOrEmpty(noteId)) return null;
-        return Notes.FirstOrDefault(n => n.NoteId == noteId)?.Title;
-    }
-
-    /// <summary>Direct child pages of <paramref name="noteId"/> (notes with <see cref="Note.ParentNoteId"/> set).</summary>
-    public int CountDirectChildPagesForNote(string noteId)
-    {
-        if (string.IsNullOrEmpty(noteId)) return 0;
-        return Notes.Count(n => string.Equals(n.ParentNoteId, noteId, StringComparison.Ordinal));
-    }
-
-    public async Task<string?> CreateChildPageNoteUnderParentAsync(string parentNoteId)
-    {
-        var parent = Notes.FirstOrDefault(n => n.NoteId == parentNoteId);
-        if (parent == null) return null;
-
-        var maxOrder = Notes.Where(n => n.FolderId == parent.FolderId).Select(n => n.Order).DefaultIfEmpty(0).Max();
-        var child = new Note
-        {
-            Title = "Untitled",
-            FolderId = parent.FolderId,
-            FolderPath = parent.FolderPath,
-            ParentNoteId = parentNoteId,
-            Order = maxOrder + 1
-        };
-
-        Notes.Add(child);
-        await _noteService.SaveNoteAsync(child);
-
-        _ = StatisticsRecorder.IncrementDailyCounterAsync(_statistics, _logger,
-            StatisticsNamespaces.Notes, NoteStatKinds.DailySummary, "notes_created");
-        _ = StatisticsRecorder.IncrementLifetimeAsync(_statistics, _logger,
-            StatisticsNamespaces.Notes, NoteStatKinds.LifetimeTotals, "total_notes_created");
-
-        return child.NoteId;
-    }
-
-    public void NavigateToNoteById(string? noteId)
-    {
-        if (string.IsNullOrWhiteSpace(noteId)) return;
-        var id = noteId.Trim();
-        var note = Notes.FirstOrDefault(n => n.NoteId == id);
-        if (note == null) return;
-
-        var item = AllNotesTreeItems.FirstOrDefault(i => i.Note?.NoteId == id)
-            ?? FindTreeItemByNoteId(RootTreeItems, id);
-        if (item != null)
-        {
-            SelectedTreeItem = item;
-            return;
-        }
-
-        _suppressSelectedNoteClearOnTreeItemNull = true;
-        try
-        {
-            SelectedNote = note;
-            SelectedTreeItem = null;
-        }
-        finally
-        {
-            _suppressSelectedNoteClearOnTreeItemNull = false;
-        }
-
-        _lastSelectedNoteTreeItem = null;
+        var mutation = await _treeMutator.NewNoteAsync(context, SelectedTreeItem, SelectedNote);
+        if (mutation == null) return;
+        if (mutation.SelectTreeItem != null)
+            SelectedTreeItem = mutation.SelectTreeItem;
+        if (mutation.SelectNote != null)
+            SelectedNote = mutation.SelectNote;
     }
 
     [RelayCommand]
     private async Task DuplicateNoteAsync(NoteTreeItemViewModel? item)
     {
-        if (item?.Note == null) return;
-        var source = item.Note;
-
-        var bumped = new List<Note>();
-        foreach (var n in Notes.Where(n => n.FolderId == source.FolderId))
-        {
-            if (n.Order > source.Order)
-            {
-                n.Order++;
-                bumped.Add(n);
-            }
-        }
-
-        var clone = new Note
-        {
-            NoteId = Guid.NewGuid().ToString(),
-            Title = FormatDuplicateNoteTitle(source.Title),
-            FolderId = source.FolderId,
-            FolderPath = source.FolderPath,
-            ParentNoteId = null,
-            Content = source.Content ?? string.Empty,
-            Blocks = CloneNoteBlocksForDuplicate(source.Blocks),
-            Order = source.Order + 1,
-            CreatedAt = DateTime.UtcNow,
-            ModifiedAt = DateTime.UtcNow,
-            IsFavorite = false
-        };
-
-        Notes.Add(clone);
-        await _noteService.SaveNoteAsync(clone);
-
-        _ = StatisticsRecorder.IncrementDailyCounterAsync(_statistics, _logger,
-            StatisticsNamespaces.Notes, NoteStatKinds.DailySummary, "notes_created");
-        _ = StatisticsRecorder.IncrementLifetimeAsync(_statistics, _logger,
-            StatisticsNamespaces.Notes, NoteStatKinds.LifetimeTotals, "total_notes_created");
-
-        foreach (var n in bumped)
-            await _noteService.SaveNoteAsync(n);
-
-        await BuildTreeAsync(_foldersById.Values.ToList(), Notes.ToList());
-        RefreshAllNotesFlatList();
-        RefreshFlattenedTreeItems();
-
-        var newVm = FindTreeItemByNoteId(RootTreeItems, clone.NoteId);
-        if (newVm != null)
-        {
-            SelectedTreeItem = newVm;
-            SelectedNote = clone;
-        }
+        var mutation = await _treeMutator.DuplicateNoteAsync(item);
+        if (mutation == null) return;
+        if (mutation.SelectTreeItem != null)
+            SelectedTreeItem = mutation.SelectTreeItem;
+        if (mutation.SelectNote != null)
+            SelectedNote = mutation.SelectNote;
     }
-
-    private string FormatDuplicateNoteTitle(string? title)
-    {
-        var baseTitle = string.IsNullOrWhiteSpace(title) ? "Untitled" : title.Trim();
-        return string.Format(_localizationService.T("DuplicateNoteTitleFormat", "Notes"), baseTitle);
-    }
-
-    private static List<Block>? CloneNoteBlocksForDuplicate(List<Block>? blocks)
-    {
-        if (blocks == null || blocks.Count == 0)
-            return null;
-        foreach (var b in blocks)
-            b.EnsureSpans();
-        var json = JsonSerializer.Serialize(blocks);
-        var list = JsonSerializer.Deserialize<List<Block>>(json);
-        if (list == null || list.Count == 0)
-            return null;
-        var ordered = list.OrderBy(b => b.Order).ToList();
-        for (var i = 0; i < ordered.Count; i++)
-        {
-            ordered[i].Id = Guid.NewGuid().ToString();
-            ordered[i].Order = i;
-            ordered[i].EnsureSpans();
-        }
-        return ordered;
-    }
-
-    // Search and Recent commands removed as per request
-
 
     [RelayCommand]
     private void SelectFavourite(NoteTreeItemViewModel? item)
     {
-        if (item != null)
-        {
-            SelectedTreeItem = item;
-            if (item.Note != null)
-                SelectedNote = item.Note;
-        }
+        if (item == null) return;
+        SelectedTreeItem = item;
+        if (item.Note != null)
+            SelectedNote = item.Note;
     }
 
     [RelayCommand]
     private async Task DeleteNoteAsync(NoteTreeItemViewModel? item)
     {
-        if (item?.Note == null) return;
-
-        var note = item.Note;
-        var result = await _noteService.DeleteNoteAsync(note.NoteId);
-        if (!result.IsSuccess) return;
-
-        if (SelectedNote == note)
+        var clear = await _treeMutator.DeleteNoteAsync(item, SelectedNote);
+        if (clear)
         {
             SelectedTreeItem = null;
             SelectedNote = null;
         }
-
-        Notes.Remove(note);
-        RemoveNoteTreeItem(AllNotesTreeItems, item);
-        RemoveNoteTreeItem(FavouriteNotes, item);
-        RemoveNoteTreeItemFromRoot(RootTreeItems, item);
-        RefreshFlattenedTreeItems();
-
-        _ = StatisticsRecorder.IncrementDailyCounterAsync(_statistics, _logger,
-            StatisticsNamespaces.Notes, NoteStatKinds.DailySummary, "notes_deleted");
-        _ = StatisticsRecorder.IncrementLifetimeAsync(_statistics, _logger,
-            StatisticsNamespaces.Notes, NoteStatKinds.LifetimeTotals, "total_notes_deleted");
     }
 
     [RelayCommand]
     private async Task DeleteFolderAsync(NoteTreeItemViewModel? item)
     {
-        if (item?.Folder == null || item.FolderId == null) return;
-
-        var folderId = item.FolderId;
-        var clearSelection = SelectedTreeItem != null &&
-            (ReferenceEquals(SelectedTreeItem, item) || SelectedTreeItem.Note?.FolderId == folderId);
-        // Move notes in this folder to root
-        foreach (var note in Notes.Where(n => n.FolderId == folderId).ToList())
-        {
-            note.FolderId = null;
-            await _noteService.SaveNoteAsync(note);
-        }
-        // Move child folders to root
-        foreach (var folder in _foldersById.Values.Where(f => f.ParentId == folderId).ToList())
-        {
-            folder.ParentId = null;
-            await _folderService.SaveFolderAsync(folder);
-        }
-        var result = await _folderService.DeleteFolderAsync(folderId);
-        if (!result.IsSuccess) return;
-
-        _foldersById.Remove(folderId);
-        if (clearSelection)
+        var clear = await _treeMutator.DeleteFolderAsync(item, SelectedTreeItem, SelectedNote);
+        if (clear)
         {
             SelectedTreeItem = null;
             SelectedNote = null;
         }
-        var foldersList = _foldersById.Values.ToList();
-        var notesList = Notes.ToList();
-        await BuildTreeAsync(foldersList, notesList);
-        RefreshFlattenedTreeItems();
-        RefreshFavouriteNotes();
     }
 
     [RelayCommand]
-    private async Task RenameFolderAsync(NoteTreeItemViewModel? item)
-    {
-        if (item?.Folder == null) return;
-        await _folderService.SaveFolderAsync(item.Folder);
-    }
-
-    private static void RemoveNoteTreeItem(ObservableCollection<NoteTreeItemViewModel> collection, NoteTreeItemViewModel item)
-    {
-        for (var i = 0; i < collection.Count; i++)
-        {
-            if (ReferenceEquals(collection[i], item))
-            {
-                collection.RemoveAt(i);
-                return;
-            }
-        }
-    }
-
-    private void RemoveNoteTreeItemFromRoot(ObservableCollection<NoteTreeItemViewModel> rootItems, NoteTreeItemViewModel item)
-    {
-        for (var i = 0; i < rootItems.Count; i++)
-        {
-            if (ReferenceEquals(rootItems[i], item))
-            {
-                rootItems.RemoveAt(i);
-                return;
-            }
-            if (RemoveNoteTreeItemRecursive(rootItems[i].Children, item))
-                return;
-        }
-    }
-
-    private static bool RemoveNoteTreeItemRecursive(ObservableCollection<NoteTreeItemViewModel> children, NoteTreeItemViewModel item)
-    {
-        for (var i = 0; i < children.Count; i++)
-        {
-            if (ReferenceEquals(children[i], item))
-            {
-                children.RemoveAt(i);
-                return true;
-            }
-            if (RemoveNoteTreeItemRecursive(children[i].Children, item))
-                return true;
-        }
-        return false;
-    }
-
-    private static NoteTreeItemViewModel? FindTreeItemByNoteId(IEnumerable<NoteTreeItemViewModel> items, string noteId)
-    {
-        foreach (var item in items)
-        {
-            if (item.Note?.NoteId == noteId)
-                return item;
-            var found = FindTreeItemByNoteId(item.Children, noteId);
-            if (found != null)
-                return found;
-        }
-        return null;
-    }
+    private async Task RenameFolderAsync(NoteTreeItemViewModel? item) =>
+        await _treeMutator.RenameFolderAsync(item);
 
     [RelayCommand]
     private async Task ToggleFavoriteAsync()
     {
         if (SelectedNote == null) return;
-
-        SelectedNote.IsFavorite = !SelectedNote.IsFavorite;
+        await _treeMutator.ToggleFavoriteAsync(SelectedNote);
         IsFavorite = SelectedNote.IsFavorite;
-        await _noteService.SaveNoteAsync(SelectedNote);
-        RefreshFavouriteNotes();
     }
 
     [RelayCommand]
-    private async Task NewFolderAsync(NoteTreeItemViewModel? context)
-    {
-        var parentFolderId = ResolveCreationFolderId(context);
-        var folder = new NoteFolder
-        {
-            Name = "New folder",
-            ParentId = parentFolderId,
-            Order = GetNextFolderOrder(parentFolderId)
-        };
-        var result = await _folderService.SaveFolderAsync(folder);
-        if (!result.IsSuccess) return;
+    private async Task NewFolderAsync(NoteTreeItemViewModel? context) =>
+        await _treeMutator.NewFolderAsync(context, SelectedTreeItem, SelectedNote);
 
-        _foldersById[folder.FolderId] = folder;
-        if (!string.IsNullOrEmpty(parentFolderId))
-            _expandedFolderIds.Add(parentFolderId);
-        var folders = _foldersById.Values.ToList();
-        var notes = Notes.ToList();
-        await BuildTreeAsync(folders, notes);
-        RefreshFlattenedTreeItems();
-    }
-
-    private string? ResolveCreationFolderId(NoteTreeItemViewModel? context)
-    {
-        if (context?.FolderId != null)
-            return context.FolderId;
-        if (context?.Note != null)
-            return context.Note.FolderId;
-        if (SelectedTreeItem?.FolderId != null)
-            return SelectedTreeItem.FolderId;
-        if (SelectedTreeItem?.Note != null)
-            return SelectedTreeItem.Note.FolderId;
-        return SelectedNote?.FolderId;
-    }
-
-    private int GetNextNoteOrder(string? folderId) =>
-        Notes.Where(n => string.Equals(n.FolderId, folderId, StringComparison.Ordinal))
-            .Select(n => n.Order)
-            .DefaultIfEmpty(-1)
-            .Max() + 1;
-
-    private int GetNextFolderOrder(string? parentFolderId) =>
-        _foldersById.Values
-            .Where(f => string.Equals(f.ParentId, parentFolderId, StringComparison.Ordinal))
-            .Select(f => f.Order)
-            .DefaultIfEmpty(-1)
-            .Max() + 1;
-
-    private string BuildFolderPath(string? folderId)
-    {
-        if (string.IsNullOrWhiteSpace(folderId))
-            return string.Empty;
-
-        var names = new Stack<string>();
-        var current = folderId;
-        while (!string.IsNullOrWhiteSpace(current) && _foldersById.TryGetValue(current, out var folder))
-        {
-            if (!string.IsNullOrWhiteSpace(folder.Name))
-                names.Push(folder.Name);
-            current = folder.ParentId;
-        }
-
-        return string.Join(" / ", names);
-    }
-
-    /// <summary>
-    /// Data key for drag-drop of tree items.
-    /// </summary>
-    public const string NoteTreeItemDragKey = "NoteTreeItemViewModel";
-
-    /// <summary>
-    /// Typed <see cref="DataFormat{T}"/> for in-app tree drag-drop (see <see cref="AvaloniaDataFormats"/>).
-    /// </summary>
-    public static readonly DataFormat<NoteTreeItemViewModel> NoteTreeItemDragDataFormat =
-        AvaloniaDataFormats.CreateApplicationFormat<NoteTreeItemViewModel>(NoteTreeItemDragKey);
-
-    /// <summary>
-    /// Moves an item one position up within its sibling collection.
-    /// </summary>
     [RelayCommand]
-    private async Task MoveItemUpAsync(NoteTreeItemViewModel? item)
-    {
-        if (item == null) return;
-        var (col, idx) = FindContainingCollection(RootTreeItems, item);
-        if (col == null || idx <= 0) return;
-        col.Move(idx, idx - 1);
-        await PersistOrderAsync(col);
-    }
+    private async Task MoveItemUpAsync(NoteTreeItemViewModel? item) =>
+        await _treeMutator.MoveItemUpAsync(item);
 
-    /// <summary>
-    /// Moves an item one position down within its sibling collection.
-    /// </summary>
     [RelayCommand]
-    private async Task MoveItemDownAsync(NoteTreeItemViewModel? item)
-    {
-        if (item == null) return;
-        var (col, idx) = FindContainingCollection(RootTreeItems, item);
-        if (col == null || idx < 0 || idx >= col.Count - 1) return;
-        col.Move(idx, idx + 1);
-        await PersistOrderAsync(col);
-    }
+    private async Task MoveItemDownAsync(NoteTreeItemViewModel? item) =>
+        await _treeMutator.MoveItemDownAsync(item);
 
-    /// <summary>
-    /// Moves a tree item to root (parentless). Call when user drops on "My Notes" section background or header.
-    /// </summary>
-    public async Task MoveTreeItemToRootAsync(NoteTreeItemViewModel source)
-    {
-        if (source == null) return;
+    public async Task MoveTreeItemToRootAsync(NoteTreeItemViewModel source) =>
+        await _treeMutator.MoveTreeItemToRootAsync(source);
 
-        if (source.IsFolder && source.Folder != null)
-        {
-            source.Folder.ParentId = null;
-            var r = await _folderService.SaveFolderAsync(source.Folder);
-            if (!r.IsSuccess) return;
-        }
-        else if (source.Note != null)
-        {
-            source.Note.FolderId = null;
-            var r = await _noteService.SaveNoteAsync(source.Note);
-            if (!r.IsSuccess) return;
-        }
-        else
-            return;
-
-        var foldersList = _foldersById.Values.ToList();
-        var notesForTree = Notes.ToList();
-        await BuildTreeAsync(foldersList, notesForTree);
-        RefreshFlattenedTreeItems();
-        RefreshFavouriteNotes();
-    }
-
-    /// <summary>
-    /// Handles dropping a tree item: either move into a folder (dropOnFolder) or reorder among siblings (insert after target).
-    /// </summary>
-    public async Task MoveTreeItemAsync(NoteTreeItemViewModel source, NoteTreeItemViewModel target, bool dropOnFolder, bool insertAfterTarget)
-    {
-        if (source == null || target == null) return;
-        if (ReferenceEquals(source, target) && dropOnFolder) return;
-
-        if (dropOnFolder)
-        {
-            if (!target.IsFolder || target.FolderId == null) return; // synthetic "Uncategorized" etc. have no FolderId
-            if (source.IsFolder && IsDescendantOf(target.FolderId!, source.FolderId!)) return; // prevent moving folder into its own descendant
-
-            if (source.IsFolder && source.Folder != null)
-            {
-                source.Folder.ParentId = target.FolderId;
-                var siblingFolders = _foldersById.Values.Where(f => f.ParentId == target.FolderId).OrderBy(f => f.Order).ToList();
-                var newIndex = siblingFolders.Count;
-                source.Folder.Order = newIndex;
-                var r = await _folderService.SaveFolderAsync(source.Folder);
-                if (!r.IsSuccess) return;
-            }
-            else if (source.Note != null)
-            {
-                source.Note.FolderId = target.FolderId;
-                var siblingNotes = Notes.Where(n => n.FolderId == target.FolderId).OrderBy(n => n.Order).ToList();
-                source.Note.Order = siblingNotes.Count;
-                var r = await _noteService.SaveNoteAsync(source.Note);
-                if (!r.IsSuccess) return;
-            }
-            else
-                return;
-
-            var foldersList = _foldersById.Values.ToList();
-            var notesForTree = Notes.ToList();
-            await BuildTreeAsync(foldersList, notesForTree);
-            RefreshFlattenedTreeItems();
-            RefreshFavouriteNotes();
-            return;
-        }
-
-        // Reorder or move to different parent (e.g. drag out of folder to root)
-        var (sourceCol, sourceIndex) = FindContainingCollection(RootTreeItems, source);
-        var (targetCol, targetIndex) = FindContainingCollection(RootTreeItems, target);
-        if (sourceCol == null || targetCol == null) return;
-
-        var fromIdx = sourceIndex;
-        var toIdx = insertAfterTarget ? targetIndex + 1 : targetIndex;
-        if (fromIdx < 0 || toIdx < 0) return;
-
-        var sameParent = ReferenceEquals(sourceCol, targetCol);
-        var insertIdx = sameParent && toIdx > fromIdx ? toIdx - 1 : toIdx;
-        if (insertIdx < 0) insertIdx = 0;
-
-        var item = sourceCol[fromIdx];
-        sourceCol.RemoveAt(fromIdx);
-
-        if (!sameParent)
-        {
-            // Moving to a different parent (e.g. drag out to root or into another folder's list)
-            var targetParentFolderId = GetParentFolderIdForCollection(RootTreeItems, targetCol);
-            if (item.IsFolder && item.Folder != null)
-            {
-                if (targetParentFolderId != null && IsDescendantOf(targetParentFolderId, item.FolderId!))
-                    { sourceCol.Insert(fromIdx, item); return; } // prevent folder into its own descendant
-                item.Folder.ParentId = targetParentFolderId;
-                var r = await _folderService.SaveFolderAsync(item.Folder);
-                if (!r.IsSuccess) { sourceCol.Insert(fromIdx, item); return; }
-            }
-            else if (item.Note != null)
-            {
-                item.Note.FolderId = targetParentFolderId;
-                var r = await _noteService.SaveNoteAsync(item.Note);
-                if (!r.IsSuccess) { sourceCol.Insert(fromIdx, item); return; }
-            }
-            else
-            {
-                sourceCol.Insert(fromIdx, item);
-                return;
-            }
-        }
-        else if (fromIdx == toIdx || (fromIdx < toIdx && toIdx == fromIdx + 1))
-        {
-            sourceCol.Insert(fromIdx, item);
-            return;
-        }
-
-        targetCol.Insert(Math.Min(insertIdx, targetCol.Count), item);
-        await PersistOrderAsync(sourceCol);
-        await PersistOrderAsync(targetCol);
-        var folders = _foldersById.Values.ToList();
-        var notesList = Notes.ToList();
-        await BuildTreeAsync(folders, notesList);
-        RefreshFlattenedTreeItems();
-        RefreshFavouriteNotes();
-    }
-
-    private bool IsDescendantOf(string folderId, string potentialAncestorId)
-    {
-        var current = folderId;
-        while (!string.IsNullOrEmpty(current) && _foldersById.TryGetValue(current, out var folder))
-        {
-            if (folder.ParentId == potentialAncestorId) return true;
-            current = folder.ParentId;
-        }
-        return false;
-    }
-
-    private static (ObservableCollection<NoteTreeItemViewModel>? collection, int index) FindContainingCollection(
-        ObservableCollection<NoteTreeItemViewModel> root,
-        NoteTreeItemViewModel item)
-    {
-        for (var i = 0; i < root.Count; i++)
-        {
-            if (ReferenceEquals(root[i], item))
-                return (root, i);
-            var (col, idx) = FindContainingCollection(root[i].Children, item);
-            if (col != null) return (col, idx);
-        }
-        return (null, -1);
-    }
-
-    /// <summary>
-    /// Returns the folder id that contains the given collection (null for RootTreeItems).
-    /// </summary>
-    private static string? GetParentFolderIdForCollection(
-        ObservableCollection<NoteTreeItemViewModel> root,
-        ObservableCollection<NoteTreeItemViewModel> collection)
-    {
-        if (ReferenceEquals(collection, root)) return null;
-        for (var i = 0; i < root.Count; i++)
-        {
-            if (ReferenceEquals(root[i].Children, collection))
-                return root[i].FolderId;
-            var found = GetParentFolderIdForCollection(root[i].Children, collection);
-            if (found != null) return found;
-        }
-        return null;
-    }
-
-    private async Task PersistOrderAsync(ObservableCollection<NoteTreeItemViewModel> siblings)
-    {
-        for (var i = 0; i < siblings.Count; i++)
-        {
-            var node = siblings[i];
-            if (node.Folder != null)
-            {
-                node.Folder.Order = i;
-                await _folderService.SaveFolderAsync(node.Folder);
-            }
-            else if (node.Note != null)
-            {
-                node.Note.Order = i;
-                await _noteService.SaveNoteAsync(node.Note);
-            }
-        }
-    }
-
-    [ObservableProperty]
-    private double _editorMaxWidth = 1000;
+    public async Task MoveTreeItemAsync(NoteTreeItemViewModel source, NoteTreeItemViewModel target, bool dropOnFolder, bool insertAfterTarget) =>
+        await _treeMutator.MoveTreeItemAsync(source, target, dropOnFolder, insertAfterTarget);
 
     public void OnNavigatedTo(object? parameter)
     {
@@ -1171,30 +336,16 @@ public partial class NotesViewModel : ViewModelBase, INavigationAware
         _ = LoadNotesCommand.ExecuteAsync(null);
     }
 
-    private async Task UpdateEditorWidthAsync()
+    public void ClearHistoryOnNoteSwitch(Note? previous, Note? next) =>
+        _history.ClearOnNoteSwitch(previous, next);
+
+    internal void RefreshBreadcrumbText()
     {
-        var widthStr = await _settingsService.GetAsync("Editor.Width", _localizationService.T("Wide", "Settings"));
-        if (string.IsNullOrWhiteSpace(widthStr))
-        {
-            await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() => EditorMaxWidth = 1000);
-            return;
-        }
-        var superCompact = _localizationService.T("SuperCompact", "Settings");
-        var compact = _localizationService.T("Compact", "Settings");
-        var wide = _localizationService.T("Wide", "Settings");
-        var superWide = _localizationService.T("SuperWide", "Settings");
-
-        double width = 1000;
-        if (widthStr == superCompact) width = 600;
-        else if (widthStr == compact) width = 800;
-        else if (widthStr == wide) width = 1000;
-        else if (widthStr == superWide) width = 1600;
-
-        var w = width;
-        await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() => EditorMaxWidth = w);
+        if (SelectedNote == null) return;
+        NoteBreadcrumb.BuildForNote(SelectedNote, _library.FoldersById);
     }
 
-    private string FormatRelative(DateTime dateTime, string prefixKey, string ns)
+    internal string FormatRelative(DateTime dateTime, string prefixKey, string ns)
     {
         var prefix = _localizationService.T(prefixKey, ns);
         var utc = dateTime.Kind == DateTimeKind.Unspecified ? DateTime.SpecifyKind(dateTime, DateTimeKind.Utc) : dateTime.ToUniversalTime();

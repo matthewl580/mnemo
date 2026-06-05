@@ -8,6 +8,7 @@ using Mnemo.Infrastructure.Services;
 using Mnemo.Infrastructure.Services.Notes;
 using Mnemo.Infrastructure.Services.Search;
 using Mnemo.Infrastructure.Services.Tools;
+using Mnemo.UI.Modules.Notes.Services;
 using Mnemo.UI.Services;
 
 namespace Mnemo.UI.Modules.Notes;
@@ -16,6 +17,11 @@ public class NotesModule : IModule
 {
     public void ConfigureServices(IServiceRegistrar services)
     {
+        services.AddTransient<NotesLibrarySession>();
+        services.AddTransient<NotesEditorSession>();
+        services.AddTransient<NotesEditorHistory>();
+        services.AddTransient<NotesTreeMutator>();
+        services.AddTransient<NotesDocumentMutator>();
         services.AddTransient<ViewModels.NotesViewModel>();
         services.AddSingleton<ISearchProvider, NotesSearchProvider>();
         services.AddSingleton<INotesEditorViewDispatch, NotesEditorViewDispatch>();
