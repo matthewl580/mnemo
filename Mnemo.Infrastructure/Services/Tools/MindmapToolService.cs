@@ -13,12 +13,18 @@ namespace Mnemo.Infrastructure.Services.Tools;
 public sealed class MindmapToolService
 {
     private readonly IMindmapService _mindmaps;
+    private readonly IMindmapLayoutService _layout;
     private readonly INavigationService _nav;
     private readonly IMainThreadDispatcher _ui;
 
-    public MindmapToolService(IMindmapService mindmaps, INavigationService nav, IMainThreadDispatcher ui)
+    public MindmapToolService(
+        IMindmapService mindmaps,
+        IMindmapLayoutService layout,
+        INavigationService nav,
+        IMainThreadDispatcher ui)
     {
         _mindmaps = mindmaps;
+        _layout = layout;
         _nav = nav;
         _ui = ui;
     }
@@ -389,7 +395,7 @@ public sealed class MindmapToolService
         if (string.IsNullOrEmpty(algo))
             algo = mindmap.Layout.Algorithm;
 
-        global::Mnemo.Infrastructure.Services.MindmapGraphLayout.Apply(mindmap, algo!);
+        _layout.Apply(mindmap, algo);
         var save = await _mindmaps.SaveMindmapAsync(mindmap).ConfigureAwait(false);
         if (!save.IsSuccess)
             return ToolInvocationResult.Failure(ToolResultCodes.InternalError, save.ErrorMessage ?? "Save failed.");

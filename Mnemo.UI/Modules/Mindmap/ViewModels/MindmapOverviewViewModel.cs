@@ -1,13 +1,15 @@
 using System;
 using System.Collections.ObjectModel;
+using System.ComponentModel;
 using System.Linq;
 using System.Threading.Tasks;
 using System.Windows.Input;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Mnemo.Core.Services;
-using Mnemo.UI.ViewModels;
 using Mnemo.UI.Components.Overlays;
+using Mnemo.UI.Modules.Mindmap.Services;
+using Mnemo.UI.ViewModels;
 
 namespace Mnemo.UI.Modules.Mindmap.ViewModels;
 
@@ -22,13 +24,14 @@ public partial class MindmapOverviewViewModel : ViewModelBase
     private string _searchText = string.Empty;
 
     [ObservableProperty]
-    private bool _isGridView = false;
+    private bool _isGridView;
 
     [ObservableProperty]
     private bool _isLoading;
 
     public ObservableCollection<MindmapItemViewModel> FrequentlyUsedItems { get; } = new();
     public ObservableCollection<MindmapItemViewModel> AllItems { get; } = new();
+    public ObservableCollection<MindmapItemViewModel> FilteredItems { get; } = new();
 
     public ICommand ToggleViewCommand { get; }
     public ICommand CreateCommand { get; }
@@ -51,23 +54,34 @@ public partial class MindmapOverviewViewModel : ViewModelBase
         OpenMindmapCommand = new RelayCommand<MindmapItemViewModel>(OpenMindmap);
         DeleteMindmapCommand = new AsyncRelayCommand<MindmapItemViewModel>(DeleteMindmapAsync);
 
+        AllItems.CollectionChanged += (_, _) => ApplySearchFilter();
         _ = LoadMindmapsAsync();
+    }
+
+    partial void OnSearchTextChanged(string value) => ApplySearchFilter();
+
+    private void ApplySearchFilter()
+    {
+        var query = SearchText?.Trim() ?? string.Empty;
+        FilteredItems.Clear();
+        var source = string.IsNullOrEmpty(query)
+            ? AllItems
+            : AllItems.Where(i => i.Name.Contains(query, StringComparison.OrdinalIgnoreCase));
+        foreach (var item in source)
+            FilteredItems.Add(item);
     }
 
     private async Task LoadMindmapsAsync()
     {
         if (IsLoading) return;
         IsLoading = true;
-        
+
         try
         {
             var result = await _mindmapService.GetAllMindmapsAsync();
             if (result.IsSuccess && result.Value != null)
             {
-                var mindmaps = result.Value.ToList();
-                
-                // Process preview data off the UI thread
-                var viewModels = mindmaps.Select(m => 
+                var viewModels = result.Value.Select(m =>
                 {
                     var vm = new MindmapItemViewModel
                     {
@@ -77,52 +91,7 @@ public partial class MindmapOverviewViewModel : ViewModelBase
                         EdgeCount = m.Edges.Count,
                         LastModified = DateTime.Now.ToString("MM/dd/yyyy")
                     };
-
-                    // Generate simple preview
-                    if (m.Layout?.Nodes != null && m.Layout.Nodes.Count > 0)
-                    {
-                        var nodes = m.Layout.Nodes.Values.ToList();
-                        double minX = nodes.Min(n => n.X);
-                        double maxX = nodes.Max(n => n.X);
-                        double minY = nodes.Min(n => n.Y);
-                        double maxY = nodes.Max(n => n.Y);
-
-                        double width = maxX - minX;
-                        double height = maxY - minY;
-                        
-                        // Scale to fit card preview area
-                        double padding = 20;
-                        double targetW = 240;
-                        double targetH = 120;
-
-                        double scaleX = width > 0 ? (targetW - padding * 2) / width : 1;
-                        double scaleY = height > 0 ? (targetH - padding * 2) / height : 1;
-                        double scale = Math.Min(scaleX, scaleY);
-
-                        foreach (var nodeEntry in m.Layout.Nodes)
-                        {
-                            vm.NodePreviews.Add(new NodePreviewViewModel
-                            {
-                                X = (nodeEntry.Value.X - minX) * scale + padding,
-                                Y = (nodeEntry.Value.Y - minY) * scale + padding
-                            });
-                        }
-
-                        foreach (var edge in m.Edges)
-                        {
-                            if (m.Layout.Nodes.TryGetValue(edge.FromId, out var source) &&
-                                m.Layout.Nodes.TryGetValue(edge.ToId, out var target))
-                            {
-                                vm.EdgePreviews.Add(new EdgePreviewViewModel
-                                {
-                                    X1 = (source.X - minX) * scale + padding,
-                                    Y1 = (source.Y - minY) * scale + padding,
-                                    X2 = (target.X - minX) * scale + padding,
-                                    Y2 = (target.Y - minY) * scale + padding
-                                });
-                            }
-                        }
-                    }
+                    MindmapPreviewBuilder.PopulatePreviews(vm, m);
                     return vm;
                 }).ToList();
 
@@ -132,14 +101,12 @@ public partial class MindmapOverviewViewModel : ViewModelBase
                     FrequentlyUsedItems.Clear();
 
                     foreach (var vm in viewModels)
-                    {
                         AllItems.Add(vm);
-                    }
 
                     foreach (var m in AllItems.Take(4))
-                    {
                         FrequentlyUsedItems.Add(m);
-                    }
+
+                    ApplySearchFilter();
                 });
             }
         }
@@ -154,9 +121,7 @@ public partial class MindmapOverviewViewModel : ViewModelBase
     private void OpenMindmap(MindmapItemViewModel? item)
     {
         if (item != null)
-        {
             _navigation.NavigateTo("mindmap-detail", item.Id);
-        }
     }
 
     private async Task DeleteMindmapAsync(MindmapItemViewModel? item)
@@ -206,20 +171,16 @@ public partial class MindmapOverviewViewModel : ViewModelBase
         inputOverlay.OnResult = async (result) =>
         {
             _overlay.CloseOverlay(id);
-            
+
             if (string.IsNullOrWhiteSpace(result)) return;
 
             try
             {
                 var createResult = await _mindmapService.CreateMindmapAsync(result);
                 if (createResult.IsSuccess && createResult.Value != null)
-                {
                     _navigation.NavigateTo("mindmap-detail", createResult.Value.Id);
-                }
                 else
-                {
                     await _overlay.CreateDialogAsync("Error", $"Failed to create: {createResult.ErrorMessage}");
-                }
             }
             catch (Exception ex)
             {

@@ -344,7 +344,7 @@
                 <!-- Items View -->
                 <Panel>
                     <!-- Grid View -->
-                    <ListBox ItemsSource="{Binding AllItems}" 
+                    <ListBox ItemsSource="{Binding FilteredItems}" 
                              IsVisible="{Binding IsGridView}">
                         <ListBox.ItemsPanel>
                             <ItemsPanelTemplate>
@@ -466,7 +466,7 @@
                             </Grid>
                         </Border>
 
-                        <ListBox ItemsSource="{Binding AllItems}">
+                        <ListBox ItemsSource="{Binding FilteredItems}">
                             <ListBox.ItemTemplate>
                                 <DataTemplate DataType="vm:MindmapItemViewModel">
                                     <Button Command="{Binding DataContext, RelativeSource={RelativeSource AncestorType=UserControl}, Converter={StaticResource OpenMindmapCommandConverter}}"

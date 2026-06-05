@@ -256,47 +256,8 @@ public partial class MindmapOverviewView : UserControl
         await overlayService.CreateDialogAsync(exportSucceeded ? localization?.T("ExportCompleteTitle", "Common") ?? "Export complete" : localization?.T("ExportFailedTitle", "Common") ?? "Export failed", exportMessage).ConfigureAwait(true);
     }
 
-    private static Mnemo.Core.Models.Mindmap.Mindmap CloneMindmap(Mnemo.Core.Models.Mindmap.Mindmap source, string title)
-    {
-        return new Mnemo.Core.Models.Mindmap.Mindmap
-        {
-            Version = source.Version,
-            Id = Guid.NewGuid().ToString("n"),
-            Title = title,
-            RootNodeId = source.RootNodeId,
-            Nodes = source.Nodes.Select(node => new MindmapNode
-            {
-                Id = node.Id,
-                NodeType = node.NodeType,
-                Content = node.Content is TextNodeContent text ? new TextNodeContent { Text = text.Text } : new TextNodeContent(),
-                Metadata = new Dictionary<string, object>(node.Metadata, StringComparer.Ordinal),
-                Style = new Dictionary<string, string>(node.Style, StringComparer.Ordinal)
-            }).ToList(),
-            Edges = source.Edges.Select(edge => new MindmapEdge
-            {
-                Id = edge.Id,
-                FromId = edge.FromId,
-                ToId = edge.ToId,
-                Kind = edge.Kind,
-                Type = edge.Type,
-                Label = edge.Label
-            }).ToList(),
-            Layout = new MindmapLayout
-            {
-                Algorithm = source.Layout.Algorithm,
-                Nodes = source.Layout.Nodes.ToDictionary(
-                    pair => pair.Key,
-                    pair => new NodeLayout
-                    {
-                        X = pair.Value.X,
-                        Y = pair.Value.Y,
-                        Width = pair.Value.Width,
-                        Height = pair.Value.Height
-                    },
-                    StringComparer.Ordinal)
-            }
-        };
-    }
+    private static Mnemo.Core.Models.Mindmap.Mindmap CloneMindmap(Mnemo.Core.Models.Mindmap.Mindmap source, string title) =>
+        Mnemo.Core.Models.Mindmap.MindmapDuplicate.WithNewId(source, title);
 
     private static string SanitizeFileName(string value)
     {

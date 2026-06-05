@@ -104,6 +104,7 @@ public static class Bootstrapper
         services.AddSingleton<SettingsToolService>();
         services.AddSingleton(sp => new MindmapToolService(
             sp.GetRequiredService<IMindmapService>(),
+            sp.GetRequiredService<IMindmapLayoutService>(),
             sp.GetRequiredService<INavigationService>(),
             sp.GetRequiredService<IMainThreadDispatcher>()));
         services.AddSingleton<IToolDispatcher, ToolDispatcher>();

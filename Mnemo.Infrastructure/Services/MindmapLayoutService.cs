@@ -1,7 +1,5 @@
-using System;
-using System.Collections.Generic;
-using System.Linq;
 using Mnemo.Core.Models.Mindmap;
+using Mnemo.Core.Services;
 
 namespace Mnemo.Infrastructure.Services;
 
@@ -9,7 +7,7 @@ namespace Mnemo.Infrastructure.Services;
 /// Computes hierarchical positions for a mindmap using the same spacing as the mindmap editor auto-layout.
 /// Operates on the persisted <see cref="Mindmap"/> model only (no UI).
 /// </summary>
-internal static class MindmapGraphLayout
+public sealed class MindmapLayoutService : IMindmapLayoutService
 {
     private const double DefaultWidth = 120;
     private const double DefaultHeight = 40;
@@ -21,15 +19,12 @@ internal static class MindmapGraphLayout
     private const double LayoutRadialCenterY = 300;
     private const double LayoutRadialRadiusStep = 180;
 
-    public static void Apply(Mindmap mindmap, string algorithm)
+    public void Apply(Mindmap mindmap, string? algorithm = null)
     {
         if (mindmap.Nodes.Count == 0)
             return;
 
-        if (string.IsNullOrEmpty(algorithm)
-            || string.Equals(algorithm, "Freeform", StringComparison.Ordinal)
-            || !IsKnownAlgorithm(algorithm))
-            algorithm = LayoutAlgorithms.TreeVertical;
+        algorithm = NormalizeAlgorithm(algorithm ?? mindmap.Layout.Algorithm);
 
         var metrics = BuildMetrics(mindmap);
         var children = GetHierarchyChildren(mindmap);
@@ -90,8 +85,14 @@ internal static class MindmapGraphLayout
         mindmap.Layout.Algorithm = algorithm;
     }
 
-    private static bool IsKnownAlgorithm(string algorithm) =>
-        algorithm is LayoutAlgorithms.TreeVertical or LayoutAlgorithms.TreeHorizontal or LayoutAlgorithms.Radial;
+    private static string NormalizeAlgorithm(string algorithm)
+    {
+        if (string.IsNullOrEmpty(algorithm)
+            || string.Equals(algorithm, "Freeform", StringComparison.Ordinal)
+            || algorithm is not (LayoutAlgorithms.TreeVertical or LayoutAlgorithms.TreeHorizontal or LayoutAlgorithms.Radial))
+            return LayoutAlgorithms.TreeVertical;
+        return algorithm;
+    }
 
     private static Func<string, (double W, double H)> BuildMetrics(Mindmap mindmap)
     {
