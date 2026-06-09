@@ -12,23 +12,25 @@
 ![Framework](https://img.shields.io/badge/framework-.NET%2010.0-purple.svg)
 ![UI](https://img.shields.io/badge/UI-Avalonia%2011-orange.svg)
 
-> <div align="center">Free. Open-source. Cross-platform. A next-generation study application built for learners, by learners.</div>
+<div align="center">Free. Open-source. Cross-platform. Built by learners, for learners.</div>
 
 </div>
 
 ## What is Mnemo?
 
-Mnemo is a **fully modular**, cross-platform learning platform powered by **Avalonia 11** and **.NET 10**.  
-It combines flashcards, notes, mindmaps, learning paths, games, and more, all in one place.  
+Mnemo is a fully modular, cross-platform learning platform built with **Avalonia 11** and **.NET 10**.
+
+It brings flashcards, notes, mind maps, learning paths, games, and more into one focused app.
 
 > No subscriptions. No ads. No tracking. Ever.
 
-We’ve built Mnemo to be:
+Mnemo is designed to be:
 
-- **Extensible** – Every feature is built with modularity in mind.
-- **Customizable** – Theme & language system with full localization support. Adjust everything from fonts, colors, font size, etc.
-- **Cross-platform** – Windows, macOS, and Linux  
-- **Accessible** – Support features designed for inclusivity
+* **Extensible**: Features are built as modular parts that can grow independently.
+* **Customizable**: Themes, languages, fonts, colors, sizing, and localization can all be adjusted.
+* **Cross-platform**: Runs on Windows, macOS, and Linux.
+* **Accessible**: Includes support features aimed at making learning more inclusive.
+
 
 ## Screenshots
 
@@ -43,18 +45,18 @@ We’ve built Mnemo to be:
 </td>
 <td width="50%">
 
-**Unit View**
+**Notes Editor**
 
-![Unit-View](https://www.mnemo.one/images/path.png)
+![Unit-View](https://www.mnemo.one/images/notes-editor-2.png)
 
 </td>
 </tr>
 <tr>
 <td width="50%">
 
-**Notes Editor**
+**Flashcards Module**
 
-![NotesEditor](https://www.mnemo.one/images/notes-editor.png)
+![NotesEditor](https://www.mnemo.one/images/flashcard.png)
 
 </td>
 <td width="50%">
@@ -73,9 +75,10 @@ Mnemo is under active development and not yet feature-complete.
 
 **What works today:**
 - Core application shell and navigation
-- Learning paths and units
-- Notes and content ingestion
-- Local AI chat (offline)
+- Mindmaps
+- Block based notes editor
+- Flashcard module with various algorithms
+- Basic Widget system
 - Theming, settings, and localization infrastructure
 
 
@@ -103,7 +106,7 @@ Mnemo is under active development and not yet feature-complete.
 - **Text notes** and organization tools
 - **Mindmaps** to visualize concepts
 - **Learning paths** structured ways to learn
-- **Games** powered by the same engine as *Stardew Valley* known as [Monogame](https://monogame.net/)
+- **Games** powered by the same engine as *Stardew Valley* (known as [Monogame](https://monogame.net/))
 - **Explore** a place to download games, extensions, themes, languages etc.
 - **Progress analytics** track your study progress
 - **Extension development** create fully integrated extensions
@@ -111,44 +114,47 @@ Mnemo is under active development and not yet feature-complete.
 
 ## Architecture
 
-Mnemo follows a clean 3-layer architecture:
+Mnemo is organized into three main layers, each with a clear responsibility:
 
-- **Mnemo.Core**: Interfaces, models, and contracts (zero dependencies)
-- **Mnemo.Infrastructure**: Service implementations (AI, storage, knowledge management)
-- **Mnemo.UI**: Avalonia-based user interface and presentation layer
+* **Mnemo.Core**: Shared models, interfaces, and application contracts. This layer has no external dependencies and serves as the foundation of the application.
+* **Mnemo.Infrastructure**: Concrete implementations for core services, including AI integration, storage, and knowledge management.
+* **Mnemo.UI**: The Avalonia-based presentation layer, responsible for the user interface and user interactions.
 
 ## Project Structure
 
-```
+```text
 MnemoApp/
-├── Mnemo.Core/              # Core interfaces and models
-│   ├── Models/             # Data models
-│   └── Services/           # Service interfaces
-├── Mnemo.Infrastructure/   # Service implementations
-│   └── Services/          # AI, storage, knowledge services
-└── Mnemo.UI/              # User interface
-    ├── Components/        # Reusable UI components
-    ├── Modules/          # Feature modules
-    ├── Services/         # UI-specific services
-    └── Themes/           # UI themes and styles
+├── Mnemo.Core/              # Shared models, interfaces, and contracts
+│   ├── Models/              # Domain and data models
+│   └── Services/            # Service abstractions
+├── Mnemo.Infrastructure/    # Service implementations
+│   └── Services/            # AI, storage, and knowledge services
+└── Mnemo.UI/                # Avalonia UI application
+    ├── Components/          # Reusable UI components
+    ├── Modules/             # Self-contained feature modules
+    ├── Services/            # UI-specific services
+    └── Themes/              # Styling and theme resources
 ```
+
+This separation keeps the application easier to maintain, test, and extend as new features are added.
+
 
 ## Tech Stack
 
-- **.NET 9.0**: Modern C# runtime
-- **Avalonia UI 11.3.6**: Cross-platform UI framework
-- **LLama.cpp**: Local LLM inference
-- **ONNX Runtime**: Embedding model inference
-- **SQLite**: Local data and vector storage
-- **Markdig**: Markdown processing
-- **CommunityToolkit.Mvvm**: MVVM framework
-- **Custom Tools**: Using tons of custom implementations and systems
+* **.NET 10.0**: Core runtime and C# platform
+* **Avalonia UI 11.3.6**: Cross-platform desktop UI
+* **LLama.cpp**: Local LLM inference
+* **ONNX Runtime**: Experimental support for embedding model inference
+* **SQLite**: Local storage for app data and vectors
+* **Markdig**: Markdown parsing and rendering
+* **CommunityToolkit.Mvvm**: MVVM helpers and source generators
+* **Custom tooling**: Several purpose-built systems and implementations tailored to the app
 
 ## Getting Started
 
 ### Prerequisites
 
-- .NET 9.0 SDK
+- .NET 10.0 SDK
 - Windows, Linux, or macOS
 - For CUDA acceleration (optional): NVIDIA GPU with CUDA 12.x support
 
@@ -165,7 +171,18 @@ dotnet run
 
 ### Installation
 
-Pre-built releases will be available soon. For now, build from source using the instructions above.
+1. [Download the latest release from GitHub](https://github.com/onemnemo/mnemo/releases/latest).
+   (This link will navigate you away)
+2. Choose the installer for your operating system:
+
+   * Windows: `.exe`
+   * Linux: `.AppImage`
+   * macOS: `.pkg` *(currently untested)*
+3. Open the installer.
+4. Follow the setup instructions to install Mnemo.
+
+For a step-by-step guide, see the [installation documentation](https://www.docs.mnemo.one/students/installing).
+
 
 ## Development
 
@@ -173,24 +190,15 @@ See [coding-standard.md](coding-standard.md) for detailed coding standards and a
 
 ## Documentation
 
-Project documentation is available in the [`docs/`](./docs/README.md) folder, including:
-
-- student-facing how-to guides
-- architecture and startup composition
-- project-by-project references (`Mnemo.Core`, `Mnemo.Infrastructure`, `Mnemo.UI`)
-- feature module overview
-- AI skills/tooling references
-- development and testing guides
+Project documentation is available [here](https://www.docs.mnemo.one/).
 
 ### Key Principles
 
-- **MVVM Pattern**: ViewModels contain logic, Views are declarative
-- **Dependency Injection**: All services registered via DI container
-- **Async/Await**: All I/O operations are asynchronous
-- **Modular Design**: Features implemented as auto-discovering modules
-- **Interface-Based**: Services defined by interfaces for testability
-
-> Mnemo prioritizes local-first AI for privacy, offline use, and long-term sustainability.
+* **MVVM pattern**: Keep business logic in ViewModels and make Views focused on presentation.
+* **Dependency injection**: Register services through the DI container so dependencies stay easy to manage.
+* **Async/await**: Use asynchronous calls for all I/O work to keep the app responsive.
+* **Modular design**: Build features as self-contained modules that can be discovered automatically.
+* **Interface-based services**: Define services with interfaces to make testing and swapping implementations easier. 
 
 ## Contributing
 
@@ -200,7 +208,7 @@ If you're new to the project, look for issues labeled `good first issue`.
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the Apache License 2.0 License - see the [LICENSE](LICENSE) file for details.
 
 ---
 
