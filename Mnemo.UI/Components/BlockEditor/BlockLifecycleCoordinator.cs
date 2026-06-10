@@ -158,10 +158,20 @@ internal sealed class BlockLifecycleCoordinator
             _host.Collection.UnsubscribeFromBlock(block, registerReleasedStoredImagePath: true);
             if (col.Count == 0)
             {
-                var ph = BlockFactory.CreateBlock(BlockType.Text, 0);
-                BlockHierarchy.WireChildOwnership(tc, ph, block.IsLeftColumn);
-                col.Add(ph);
-                _host.Collection.SubscribeToBlock(ph);
+                var other = block.IsLeftColumn ? tc.RightColumnBlocks : tc.LeftColumnBlocks;
+                if (other.Count > 0)
+                {
+                    // Merging away the last cell of a column dissolves the split back to
+                    // full-width blocks (same rule as DeleteBlock / RemoveCellFromTwoColumnOrUnwrap).
+                    UnwrapTwoColumnPromotingFilledColumn(tc, !block.IsLeftColumn);
+                }
+                else
+                {
+                    var ph = BlockFactory.CreateBlock(BlockType.Text, 0);
+                    BlockHierarchy.WireChildOwnership(tc, ph, block.IsLeftColumn);
+                    col.Add(ph);
+                    _host.Collection.SubscribeToBlock(ph);
+                }
             }
         }
         else

@@ -844,6 +844,16 @@ public partial class BlockEditor
                             Avalonia.Threading.DispatcherPriority.Render);
                     }
                 }
+                else if (Blocks.Count > 0)
+                {
+                    // The trailing block is already an empty text row; focus it instead of
+                    // silently ignoring the click.
+                    var lastBlock = Blocks[Blocks.Count - 1];
+                    lastBlock.PendingCaretIndex = 0;
+                    Avalonia.Threading.Dispatcher.UIThread.Post(
+                        () => lastBlock.IsFocused = true,
+                        Avalonia.Threading.DispatcherPriority.Render);
+                }
             }
             e.Pointer.Capture(null);
         }
@@ -900,12 +910,14 @@ public partial class BlockEditor
         // Only iterate realized blocks (~8-17 of 1500+). Unrealized blocks have no live UI so
         // their intersection bounds are unavailable anyway â€” the original code continued past them.
         // When blocks scroll into view during a box-select they are naturally picked up.
+        var processed = new HashSet<BlockViewModel>(ReferenceEqualityComparer.Instance);
         foreach (var (vm, editable) in _realizedBlocksByVm)
         {
             checkedBlocks++;
             // Guard against stale containers from virtualization recycling.
             if (!ReferenceEquals(editable.DataContext, vm)) continue;
             realizedHits++;
+            processed.Add(vm);
 
             var bounds = editable.GetBoxSelectIntersectionBoundsRelativeTo(this);
             if (bounds.Width <= 0 || bounds.Height <= 0)
@@ -915,6 +927,18 @@ public partial class BlockEditor
                 vm.IsSelected = selectionRect.Intersects(bounds);
                 if (vm.IsSelected)
                     selectedHits++;
+            }
+        }
+
+        // Blocks that were selected earlier in this drag but are no longer realized (virtualized
+        // out or recycled mid-drag) can't be re-tested against the rect; clear them so the box
+        // never leaves stray selections behind.
+        if (_selectedBlockCount > selectedHits)
+        {
+            foreach (var vm in GetDocumentOrderBlocks())
+            {
+                if (vm.IsSelected && !processed.Contains(vm))
+                    vm.IsSelected = false;
             }
         }
 

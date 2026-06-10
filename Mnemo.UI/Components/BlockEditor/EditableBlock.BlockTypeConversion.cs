@@ -90,6 +90,20 @@ public partial class EditableBlock
         var editor = FindParentBlockEditor();
         if (editor == null) return false;
 
+        // Cells nested in a two-column row are not in the top-level Blocks list; check their column stack.
+        if (_viewModel.OwnerTwoColumn is TwoColumnBlockViewModel tc)
+        {
+            var col = _viewModel.IsLeftColumn ? tc.LeftColumnBlocks : tc.RightColumnBlocks;
+            var ci = col.IndexOf(_viewModel);
+            if (ci < 0) return false;
+
+            var hasEditableInColumnBelow = ci + 1 < col.Count && IsEditableBlockType(col[ci + 1].Type);
+            if (hasEditableInColumnBelow) return false;
+
+            _viewModel.RequestNewBlockOfType(BlockType.Text);
+            return true;
+        }
+
         var index = editor.Blocks.IndexOf(_viewModel);
         if (index < 0) return false;
 

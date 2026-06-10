@@ -16,7 +16,18 @@ internal sealed class BlockCollectionManager
 {
     private readonly BlockEditor _host;
 
+    /// <summary>
+    /// Blocks whose VM events are currently wired. Several paths subscribe both explicitly and via
+    /// <see cref="OnTwoColumnColumnChildrenChanged"/> (column collection Add fires synchronously on
+    /// Insert); without this guard handlers get attached twice and a single Enter/delete request
+    /// runs its structural handler twice.
+    /// </summary>
+    private readonly HashSet<BlockViewModel> _subscribed = new(ReferenceEqualityComparer.Instance);
+
     internal BlockCollectionManager(BlockEditor host) => _host = host;
+
+    /// <summary>Drops all subscription tracking (full document reload after old blocks are unsubscribed).</summary>
+    internal void ResetSubscriptionTracking() => _subscribed.Clear();
 
     internal void RegisterRealizedEditableBlock(BlockViewModel vm, EditableBlock eb)
     {
@@ -50,6 +61,19 @@ internal sealed class BlockCollectionManager
             {
                 blockCount++;
                 h = MixBlockFingerprint(h, b);
+            }
+
+            // Document order yields leaf cells only; mix split containers (id + ratio) so resizing
+            // or restructuring a two-column row is not skipped by autosave.
+            const long P = 1099511628211L;
+            foreach (var top in _host._blocks)
+            {
+                if (top is not TwoColumnBlockViewModel tc)
+                    continue;
+                h = (h ^ (long)(tc.Id?.GetHashCode() ?? 0)) * P;
+                h = (h ^ (long)tc.ColumnSplitRatio.GetHashCode()) * P;
+                h = (h ^ tc.LeftColumnBlocks.Count) * P;
+                h = (h ^ tc.RightColumnBlocks.Count) * P;
             }
 
             if (perfStart != 0)
@@ -145,9 +169,13 @@ internal sealed class BlockCollectionManager
 
             case NotifyCollectionChangedAction.Remove:
                 for (var i = 0; i < e.OldItems!.Count; i++)
+                {
+                    _host.RemoveRowMeasuredHeight(_host.BlockRows[e.OldStartingIndex]);
                     _host.BlockRows.RemoveAt(e.OldStartingIndex);
+                }
                 for (var j = e.OldStartingIndex; j < _host.BlockRows.Count; j++)
                     _host.BlockRows[j].StartBlockIndex = j;
+                _host.InvalidateBlockListMeasure();
                 break;
 
             case NotifyCollectionChangedAction.Move:
@@ -194,6 +222,9 @@ internal sealed class BlockCollectionManager
 
     internal void SubscribeToBlock(BlockViewModel block)
     {
+        if (!_subscribed.Add(block))
+            return;
+
         if (block.Type == BlockType.NumberedList)
             _host._numberedListBlocks.Add(block);
 
@@ -240,14 +271,30 @@ internal sealed class BlockCollectionManager
         if (e.OldItems != null)
         {
             foreach (BlockViewModel o in e.OldItems)
-                UnsubscribeFromBlock(o, registerReleasedStoredImagePath: false);
+            {
+                // Only unsubscribe cells that actually left this split. A Move (or a cell that was
+                // re-inserted in the same change) must keep its handlers.
+                if (!tc.LeftColumnBlocks.Contains(o) && !tc.RightColumnBlocks.Contains(o))
+                    UnsubscribeFromBlock(o, registerReleasedStoredImagePath: false);
+            }
         }
+
+        // Column children are part of document order (left column then right); selection,
+        // navigation and copy all walk the cached order, so it must be invalidated here too.
+        _host._documentOrderDirty = true;
+
+        // The split row's virtualization height hint depends on its column stacks; refresh it so
+        // removed/added cells don't leave a stale MinHeight (huge empty "ghost" rows).
+        _host.InvalidateRowLayoutHeightForBlock(tc);
+
         _host.UpdateListNumbers();
         _host.NotifyBlocksChanged();
     }
 
     internal void UnsubscribeFromBlock(BlockViewModel block, bool registerReleasedStoredImagePath = false)
     {
+        _subscribed.Remove(block);
+
         if (registerReleasedStoredImagePath && block.Type == BlockType.Image)
             _host.RegisterReleasedStoredImagePathCore(block.ImagePath);
 

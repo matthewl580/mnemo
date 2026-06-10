@@ -36,10 +36,10 @@ internal static class BlockRowLayoutHeights
         row.SetLayoutHeightHint(height);
     }
 
-    public static double ResolveRowHeight(BlockRowViewModelBase row, IReadOnlyDictionary<int, double> measuredHeights, int index)
+    public static double ResolveRowHeight(BlockRowViewModelBase row, IReadOnlyDictionary<BlockRowViewModelBase, double> measuredHeights)
     {
         var hint = row.LayoutHeightHint;
-        if (measuredHeights.TryGetValue(index, out var measured) && measured > hint)
+        if (measuredHeights.TryGetValue(row, out var measured) && measured > hint)
             hint = measured;
         return hint > 1 ? hint : TextRowFallback;
     }

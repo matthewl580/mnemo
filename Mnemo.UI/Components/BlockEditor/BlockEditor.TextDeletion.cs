@@ -44,55 +44,34 @@ public partial class BlockEditor
             if (Blocks.IndexOf(tc) < 0)
                 continue;
 
-            var hasLeft = parts.Any(b => b.IsLeftColumn);
-            var hasRight = parts.Any(b => !b.IsLeftColumn);
+            // Remove only the selected cells first. Removing the whole split row whenever both
+            // columns were touched destroyed unselected sibling cells with it.
+            foreach (var cell in parts)
+            {
+                var col = cell.IsLeftColumn ? tc.LeftColumnBlocks : tc.RightColumnBlocks;
+                if (!col.Contains(cell)) continue;
+                UnsubscribeFromBlock(cell, registerReleasedStoredImagePath: true);
+                col.Remove(cell);
+                BlockHierarchy.ClearChildOwnership(cell);
+            }
 
-            if (hasLeft && hasRight)
+            if (Blocks.IndexOf(tc) < 0)
+                continue;
+
+            var leftEmpty = tc.LeftColumnBlocks.Count == 0;
+            var rightEmpty = tc.RightColumnBlocks.Count == 0;
+            if (leftEmpty && rightEmpty)
             {
                 var topIdx = Blocks.IndexOf(tc);
-                if (topIdx < 0) continue;
                 UnsubscribeFromBlock(tc, registerReleasedStoredImagePath: true);
                 Blocks.RemoveAt(topIdx);
-                ReorderBlocks();
-                continue;
             }
+            else if (leftEmpty)
+                UnwrapTwoColumnPromotingFilledColumn(tc, filledColumnIsLeft: false);
+            else if (rightEmpty)
+                UnwrapTwoColumnPromotingFilledColumn(tc, filledColumnIsLeft: true);
 
-            if (hasLeft && !hasRight)
-            {
-                var allLeft = tc.LeftColumnBlocks.Count > 0 &&
-                    tc.LeftColumnBlocks.All(b => parts.Contains(b));
-                if (allLeft)
-                {
-                    UnwrapTwoColumnPromotingFilledColumn(tc, false);
-                    continue;
-                }
-
-                foreach (var block in parts.OrderByDescending(b => tc.LeftColumnBlocks.IndexOf(b)))
-                {
-                    if (Blocks.IndexOf(tc) < 0) break;
-                    if (!tc.LeftColumnBlocks.Contains(block)) continue;
-                    RemoveCellFromTwoColumnOrUnwrap(tc, block);
-                }
-                continue;
-            }
-
-            if (hasRight && !hasLeft)
-            {
-                var allRight = tc.RightColumnBlocks.Count > 0 &&
-                    tc.RightColumnBlocks.All(b => parts.Contains(b));
-                if (allRight)
-                {
-                    UnwrapTwoColumnPromotingFilledColumn(tc, true);
-                    continue;
-                }
-
-                foreach (var block in parts.OrderByDescending(b => tc.RightColumnBlocks.IndexOf(b)))
-                {
-                    if (Blocks.IndexOf(tc) < 0) break;
-                    if (!tc.RightColumnBlocks.Contains(block)) continue;
-                    RemoveCellFromTwoColumnOrUnwrap(tc, block);
-                }
-            }
+            ReorderBlocks();
         }
 
         if (Blocks.Count == 0)
@@ -342,6 +321,14 @@ public partial class BlockEditor
             BlockHierarchy.ClearChildOwnership(block);
             if (col.Count == 0)
             {
+                var other = block.IsLeftColumn ? tc.RightColumnBlocks : tc.LeftColumnBlocks;
+                if (other.Count > 0)
+                {
+                    // Emptying a column dissolves the split (same rule as DeleteBlock).
+                    UnwrapTwoColumnPromotingFilledColumn(tc, !block.IsLeftColumn);
+                    return;
+                }
+
                 var ph = BlockFactory.CreateBlock(BlockType.Text, 0);
                 BlockHierarchy.WireChildOwnership(tc, ph, block.IsLeftColumn);
                 col.Add(ph);

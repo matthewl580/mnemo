@@ -80,7 +80,16 @@ public partial class BlockEditor
     /// </summary>
     public void SplitBlockIntoEquation(BlockViewModel block, int selStart, int selEnd)
     {
-        var index = Blocks.IndexOf(block);
+        var ownerSplit = block.OwnerTwoColumn;
+        System.Collections.ObjectModel.ObservableCollection<BlockViewModel>? column = null;
+        int index;
+        if (ownerSplit != null)
+        {
+            column = block.IsLeftColumn ? ownerSplit.LeftColumnBlocks : ownerSplit.RightColumnBlocks;
+            index = column.IndexOf(block);
+        }
+        else
+            index = Blocks.IndexOf(block);
         if (index < 0) return;
 
         var runs = block.Spans;
@@ -95,29 +104,46 @@ public partial class BlockEditor
         BeginStructuralChange();
 
         UnsubscribeFromBlock(block, registerReleasedStoredImagePath: true);
-        Blocks.RemoveAt(index);
+        if (column != null)
+        {
+            column.RemoveAt(index);
+            BlockHierarchy.ClearChildOwnership(block);
+        }
+        else
+            Blocks.RemoveAt(index);
 
         int insertAt = index;
+
+        void InsertSplitPart(BlockViewModel vm)
+        {
+            if (column != null)
+            {
+                BlockHierarchy.WireChildOwnership(ownerSplit!, vm, block.IsLeftColumn);
+                column.Insert(insertAt++, vm);
+            }
+            else
+            {
+                SubscribeToBlock(vm);
+                Blocks.Insert(insertAt++, vm);
+            }
+        }
 
         if (beforeRuns.Count > 0 && !string.IsNullOrEmpty(InlineSpanFormatApplier.Flatten(beforeRuns)))
         {
             var beforeVm = BlockFactory.CreateBlock(block.Type, 0);
             beforeVm.CommitSpansFromEditor(beforeRuns);
-            SubscribeToBlock(beforeVm);
-            Blocks.Insert(insertAt++, beforeVm);
+            InsertSplitPart(beforeVm);
         }
 
         var eqVm = BlockFactory.CreateBlock(BlockType.Equation, 0);
         eqVm.EquationLatex = latex;
-        SubscribeToBlock(eqVm);
-        Blocks.Insert(insertAt++, eqVm);
+        InsertSplitPart(eqVm);
 
         if (afterRuns.Count > 0 && !string.IsNullOrEmpty(InlineSpanFormatApplier.Flatten(afterRuns)))
         {
             var afterVm = BlockFactory.CreateBlock(block.Type, 0);
             afterVm.CommitSpansFromEditor(afterRuns);
-            SubscribeToBlock(afterVm);
-            Blocks.Insert(insertAt++, afterVm);
+            InsertSplitPart(afterVm);
         }
 
         ReorderBlocks();
@@ -142,12 +168,17 @@ public partial class BlockEditor
                 newBlock.Content = initialContent;
             BlockHierarchy.WireChildOwnership(tc, newBlock, block.IsLeftColumn);
             col.Insert(i + 1, newBlock);
-            SubscribeToBlock(newBlock);
             ReorderBlocks();
             CommitStructuralChange("Split block");
             BlocksChanged?.Invoke();
             newBlock.PendingCaretIndex = 0;
-            Dispatcher.UIThread.Post(() => newBlock.IsFocused = true, DispatcherPriority.Render);
+            // Loaded (not Render): nested column repeaters realize the new cell a frame later;
+            // focusing earlier finds no editor and the caret is lost.
+            Dispatcher.UIThread.Post(() =>
+            {
+                newBlock.IsFocused = false;
+                newBlock.IsFocused = true;
+            }, DispatcherPriority.Loaded);
             return;
         }
 
@@ -184,7 +215,6 @@ public partial class BlockEditor
                 newBlock.Content = initialContent;
             BlockHierarchy.WireChildOwnership(tc, newBlock, block.IsLeftColumn);
             col.Insert(i, newBlock);
-            SubscribeToBlock(newBlock);
             ReorderBlocks();
             CommitStructuralChange("Insert block above");
             BlocksChanged?.Invoke();
@@ -232,12 +262,15 @@ public partial class BlockEditor
                 newBlock.Content = initialContent;
             BlockHierarchy.WireChildOwnership(tc, newBlock, block.IsLeftColumn);
             col.Insert(i + 1, newBlock);
-            SubscribeToBlock(newBlock);
             ReorderBlocks();
             CommitStructuralChange("New block");
             BlocksChanged?.Invoke();
             newBlock.PendingCaretIndex = 0;
-            Dispatcher.UIThread.Post(() => newBlock.IsFocused = true, DispatcherPriority.Render);
+            Dispatcher.UIThread.Post(() =>
+            {
+                newBlock.IsFocused = false;
+                newBlock.IsFocused = true;
+            }, DispatcherPriority.Loaded);
             return;
         }
 

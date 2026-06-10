@@ -112,7 +112,11 @@ public partial class EditableBlock : UserControl
             if (selectionLength > 0) text = text.Remove(selStart, selectionLength);
             var caretIndex = Math.Clamp(selectionLength > 0 ? selStart : editor.CaretIndex, 0, text.Length);
 
-            if (_viewModel.OwnerTwoColumn != null
+            // Enter on an empty line escapes the split only from the LAST cell of a column
+            // (creates a top-level block below the row). For cells higher up the stack the
+            // normal path below inserts a sibling inside the column instead of jumping out.
+            if (_viewModel.OwnerTwoColumn is TwoColumnBlockViewModel ownerSplit
+                && IsLastCellInItsColumn(ownerSplit, _viewModel)
                 && QuoteEnterBehavior.TryGetSplitOnEmptyLineEnter(text, caretIndex, out var splitBody, out var splitFollowing))
             {
                 _viewModel.NotifyStructuralChangeStarting();
@@ -156,6 +160,12 @@ public partial class EditableBlock : UserControl
             _viewModel.NotifyStructuralChangeStarting();
             _viewModel.RequestNewBlock();
         }
+    }
+
+    private static bool IsLastCellInItsColumn(TwoColumnBlockViewModel split, BlockViewModel cell)
+    {
+        var col = cell.IsLeftColumn ? split.LeftColumnBlocks : split.RightColumnBlocks;
+        return col.Count > 0 && ReferenceEquals(col[col.Count - 1], cell);
     }
 
     private void OnMarkdownShortcutDetected(BlockType type, System.Collections.Generic.Dictionary<string, object>? meta)

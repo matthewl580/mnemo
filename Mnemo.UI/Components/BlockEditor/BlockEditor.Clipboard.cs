@@ -617,21 +617,39 @@ public partial class BlockEditor
             int insertIndex;
             if (replaceBlockSelection)
             {
-                var selectedIndices = new List<int>();
-                for (int i = 0; i < Blocks.Count; i++)
-                    if (Blocks[i].IsSelected) selectedIndices.Add(i);
-                if (selectedIndices.Count == 0)
+                // Selection may live on cells nested inside two-column rows, which are not in the
+                // top-level Blocks list; checking only Blocks[i].IsSelected missed them entirely.
+                var hasAnySelection = BlockHierarchy.EnumerateInDocumentOrder(Blocks).Any(b => b.IsSelected);
+                if (!hasAnySelection)
                     insertIndex = GetFocusedBlockIndex() < 0 ? Blocks.Count : GetFocusedBlockIndex() + 1;
                 else
                 {
-                    int firstIndex = selectedIndices.Min();
-                    foreach (int i in selectedIndices.OrderByDescending(x => x))
+                    // Anchor on the first top-level row that contains any selected block.
+                    int firstIndex = -1;
+                    for (int i = 0; i < Blocks.Count && firstIndex < 0; i++)
                     {
-                        var block = Blocks[i];
-                        UnsubscribeFromBlock(block, registerReleasedStoredImagePath: true);
-                        Blocks.RemoveAt(i);
+                        var rowSelected = Blocks[i].IsSelected
+                            || (Blocks[i] is TwoColumnBlockViewModel tcRow
+                                && tcRow.LeftColumnBlocks.Concat(tcRow.RightColumnBlocks).Any(c => c.IsSelected));
+                        if (rowSelected)
+                            firstIndex = i;
                     }
-                    insertIndex = firstIndex;
+
+                    foreach (var block in Blocks.Where(b => b.IsSelected).ToList())
+                    {
+                        UnsubscribeFromBlock(block, registerReleasedStoredImagePath: true);
+                        Blocks.Remove(block);
+                    }
+
+                    foreach (var cell in BlockHierarchy.EnumerateInDocumentOrder(Blocks)
+                                 .Where(b => b.IsSelected && b.OwnerTwoColumn != null).ToList())
+                    {
+                        if (cell.OwnerTwoColumn is not TwoColumnBlockViewModel tcOwner) continue;
+                        if (Blocks.IndexOf(tcOwner) < 0) continue;
+                        RemoveCellFromTwoColumnOrUnwrap(tcOwner, cell);
+                    }
+
+                    insertIndex = Math.Clamp(firstIndex < 0 ? Blocks.Count : firstIndex, 0, Blocks.Count);
                 }
             }
             else

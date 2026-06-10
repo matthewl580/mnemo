@@ -14,7 +14,10 @@ public partial class BlockEditor
 {
     private const double BlockItemContentChromeInset = 76;
 
-    private readonly Dictionary<int, double> _rowMeasuredHeights = new();
+    // Keyed by row view-model, not row index: incremental Blocks Insert/Remove/Move shift indices
+    // without rebuilding rows, and an index-keyed cache then applied a tall row's measured height
+    // to whatever short row slid into that slot (huge empty "ghost" rows after deletions).
+    private readonly Dictionary<BlockRowViewModelBase, double> _rowMeasuredHeights = new();
     private bool _blockRowVirtualizationWired;
 
     /// <summary>
@@ -29,7 +32,7 @@ public partial class BlockEditor
         var total = BlockRowLayoutHeights.BelowBlocksArea;
         for (var i = 0; i < BlockRows.Count; i++)
         {
-            total += BlockRowLayoutHeights.ResolveRowHeight(BlockRows[i], _rowMeasuredHeights, i);
+            total += BlockRowLayoutHeights.ResolveRowHeight(BlockRows[i], _rowMeasuredHeights);
             total += BlockRowLayoutHeights.RowSpacing;
         }
 
@@ -82,6 +85,12 @@ public partial class BlockEditor
         _rowMeasuredHeights.Clear();
     }
 
+    /// <summary>Drops the cached measured height of a row that left <see cref="BlockRows"/>.</summary>
+    internal void RemoveRowMeasuredHeight(BlockRowViewModelBase row)
+    {
+        _rowMeasuredHeights.Remove(row);
+    }
+
     internal void RefreshAllRowLayoutHeightHints()
     {
         var colW = GetBlockContentColumnWidth();
@@ -132,15 +141,15 @@ public partial class BlockEditor
             return;
 
         var h = container.Bounds.Height;
-        if (h <= 1)
+        if (h <= 1 || index >= BlockRows.Count)
             return;
 
-        if (_rowMeasuredHeights.TryGetValue(index, out var prev) && Math.Abs(prev - h) <= 0.5)
+        var row = BlockRows[index];
+        if (_rowMeasuredHeights.TryGetValue(row, out var prev) && Math.Abs(prev - h) <= 0.5)
             return;
 
-        _rowMeasuredHeights[index] = h;
-        if (index < BlockRows.Count)
-            BlockRows[index].SetLayoutHeightHint(Math.Max(BlockRows[index].LayoutHeightHint, h));
+        _rowMeasuredHeights[row] = h;
+        row.SetLayoutHeightHint(Math.Max(row.LayoutHeightHint, h));
 
         InvalidateBlockListMeasure();
     }
@@ -148,7 +157,7 @@ public partial class BlockEditor
     private void ApplyRowHeightHintToContainer(Control container, int index)
     {
         var hint = index >= 0 && index < BlockRows.Count
-            ? BlockRowLayoutHeights.ResolveRowHeight(BlockRows[index], _rowMeasuredHeights, index)
+            ? BlockRowLayoutHeights.ResolveRowHeight(BlockRows[index], _rowMeasuredHeights)
             : 0;
 
         if (hint > 1)
@@ -165,18 +174,27 @@ public partial class BlockEditor
         }
     }
 
-    private void InvalidateRowLayoutHeightForBlock(BlockViewModel? block)
+    internal void InvalidateRowLayoutHeightForBlock(BlockViewModel? block)
     {
         if (block == null)
             return;
 
+        // Column cells don't own a row; their height feeds the parent split row.
+        var rowOwner = block.OwnerTwoColumn ?? block;
+
         for (var i = 0; i < BlockRows.Count; i++)
         {
             var row = BlockRows[i];
-            if (row is not SingleBlockRowViewModel single || !ReferenceEquals(single.Block, block))
+            var matches = row switch
+            {
+                SingleBlockRowViewModel single => ReferenceEquals(single.Block, rowOwner),
+                SplitBlockRowViewModel split => ReferenceEquals(split.TwoColumn, rowOwner),
+                _ => false
+            };
+            if (!matches)
                 continue;
 
-            _rowMeasuredHeights.Remove(i);
+            _rowMeasuredHeights.Remove(row);
             BlockRowLayoutHeights.Refresh(row, GetBlockContentColumnWidth());
             if (BlocksItemsControl?.TryGetElement(i) is Control container)
                 ApplyRowHeightHintToContainer(container, i);

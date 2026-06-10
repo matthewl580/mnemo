@@ -226,12 +226,9 @@ public partial class BlockEditor
         int endIdx = Math.Max(anchorIndex, currentIndex);
 
         // Text selection only: never use block selection (IsSelected).
-        // Only clear if any blocks are actually marked selected (avoids an O(N) scan when nothing is selected).
-        if (_selectedBlockCount > 0)
-        {
-            foreach (var b in Blocks)
-                b.IsSelected = false;
-        }
+        // ClearBlockSelection walks document order, so cells nested in two-column rows are
+        // cleared too (iterating only top-level Blocks left them highlighted).
+        ClearBlockSelection();
 
         // Interact only with realized blocks â€” typically ~8-17 out of 1500+.
         // Non-realized blocks have no live RichTextEditor, so ApplyTextSelection is a no-op for them;

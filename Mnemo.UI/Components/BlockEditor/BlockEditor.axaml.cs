@@ -388,6 +388,7 @@ public partial class BlockEditor : UserControl, INotifyPropertyChanged, IEditorH
         // Unsubscribe from old blocks (do not register released paths Ã¢â‚¬â€ note switch / persistence owns asset lifetime).
         foreach (var block in Blocks)
             UnsubscribeFromBlock(block, registerReleasedStoredImagePath: false);
+        Collection.ResetSubscriptionTracking();
         MarkPhase("unsubscribeOld", $"{Blocks.Count} previous top-level");
 
         // Create new collection to ensure proper UI notification

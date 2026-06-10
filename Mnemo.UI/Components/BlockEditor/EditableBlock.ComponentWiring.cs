@@ -173,7 +173,7 @@ public partial class EditableBlock
         if (_viewModel.Type == BlockType.Image)
         {
             if (caretIndex != 0 || selectionLength != 0) return;
-            if (string.IsNullOrWhiteSpace(text))
+            if (BlockEditorContentPolicy.IsVisuallyEmpty(text))
             {
                 _viewModel.NotifyStructuralChangeStarting();
                 _backspaceHandledInTunnel = true;
@@ -184,7 +184,10 @@ public partial class EditableBlock
         }
 
         if (caretIndex != 0 || selectionLength != 0) return;
-        var isEmpty = string.IsNullOrWhiteSpace(text);
+        // Must match KeyboardHandler.HandlePlainTextBackspace: a block holding only the legacy
+        // sentinel is visually empty; treating it as content here routed Backspace to a
+        // merge-with-previous (cross-column for split cells) instead of delete/unwrap.
+        var isEmpty = BlockEditorContentPolicy.IsVisuallyEmpty(text);
 
         if (isEmpty)
         {
