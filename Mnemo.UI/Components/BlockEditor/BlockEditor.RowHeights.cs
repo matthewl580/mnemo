@@ -77,12 +77,12 @@ public partial class BlockEditor
         _blockRowVirtualizationWired = false;
     }
 
-    private void ClearBlockRowHeightCache()
+    internal void ClearBlockRowHeightCache()
     {
         _rowMeasuredHeights.Clear();
     }
 
-    private void RefreshAllRowLayoutHeightHints()
+    internal void RefreshAllRowLayoutHeightHints()
     {
         var colW = GetBlockContentColumnWidth();
         foreach (var row in BlockRows)
@@ -185,13 +185,13 @@ public partial class BlockEditor
         }
     }
 
-    private void InvalidateBlockListMeasure()
+    internal void InvalidateBlockListMeasure()
     {
         BlocksItemsControl?.InvalidateMeasure();
         InvalidateMeasure();
     }
 
-    private void OnBlockLayoutAffectingPropertyChanged(BlockViewModel block, PropertyChangedEventArgs e)
+    internal void OnBlockLayoutAffectingPropertyChanged(BlockViewModel block, PropertyChangedEventArgs e)
     {
         if (e.PropertyName is not (nameof(BlockViewModel.ImageWidth)
             or nameof(BlockViewModel.ImagePath)

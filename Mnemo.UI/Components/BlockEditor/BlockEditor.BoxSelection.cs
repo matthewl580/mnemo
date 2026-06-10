@@ -53,6 +53,9 @@ public partial class BlockEditor
                     block.IsSelected = false;
             }
         }
+
+        // Blocks removed while selected do not decrement the counter; force sync so Backspace is not swallowed.
+        _selectedBlockCount = 0;
         _blockDragHandleSelectionAnchorIndex = -1;
     }
 
@@ -380,8 +383,10 @@ public partial class BlockEditor
                 return;
             }
 
-            // Sketch block: never capture on press â€” diagram chrome uses its own press/release gesture.
-            if (vm.Type == BlockType.Sketch)
+            // Sketch/Page blocks: never capture on press - Sketch uses its own drag gesture;
+            // Page blocks need the Button's Click to fire on the same press (otherwise the
+            // user has to click once to focus and again to open the linked note).
+            if (vm.Type is BlockType.Sketch or BlockType.Page)
             {
                 if (!vm.IsFocused)
                 {
@@ -420,6 +425,8 @@ public partial class BlockEditor
                             if (pointInFocusedBlock.HasValue)
                             {
                                 var paddingCharIndex = editableBlock.GetCharacterIndexFromPoint(pointInFocusedBlock.Value);
+                                if (paddingCharIndex < 0)
+                                    paddingCharIndex = richEditor.CaretIndex;
                                 paddingCharIndex = Math.Clamp(paddingCharIndex, 0, editableBlock.GetAnchorCharClampMax());
                                 richEditor.StartDragSelect(paddingCharIndex, e.Pointer);
                                 _crossBlockAnchorBlock = vm;
@@ -440,6 +447,10 @@ public partial class BlockEditor
             if (!pointInBlock.HasValue) return;
 
             var charIndex = editableBlock.GetCharacterIndexFromPoint(pointInBlock.Value);
+            // Hit-test can fail while the row is freshly realized (component wiring is posted) or
+            // layout is in flight. Land at the end of the block instead of snapping the caret to 0.
+            if (charIndex < 0)
+                charIndex = editableBlock.GetAnchorCharClampMax();
 
             ClearBlockSelection();
             _crossBlockAnchorBlock = vm;
@@ -525,7 +536,7 @@ public partial class BlockEditor
             .Any(b => b.Tag is string t && t.StartsWith("SplitColumnBottom", StringComparison.Ordinal));
     }
 
-    private List<BlockViewModel> GetDocumentOrderBlocks()
+    internal List<BlockViewModel> GetDocumentOrderBlocks()
     {
         if (!_documentOrderDirty && _cachedDocumentOrder != null)
             return _cachedDocumentOrder;
@@ -806,19 +817,18 @@ public partial class BlockEditor
             e.Pointer.Capture(null);
             if (clickAnchorBlock != null)
             {
-                var anchorIndex = Blocks.IndexOf(clickAnchorBlock);
-                if (anchorIndex >= 0)
-                {
-                    var anchorBlock = GetEditableBlockForViewModel(Blocks[anchorIndex]);
-                    anchorBlock?.NotifySelectionChangedByEditor();
-                }
+                // Resolve directly: Blocks.IndexOf misses anchor blocks nested in two-column rows.
+                GetEditableBlockForViewModel(clickAnchorBlock)?.NotifySelectionChangedByEditor();
             }
         }
         else if (wasArmedButNotDragged && clickAnchorBlock != null)
         {
             // Plain click: focus+caret were already set at press time via PendingCaretIndex.
-            // Just release the pointer capture that the tunnel handler acquired.
+            // Just release the pointer capture that the tunnel handler acquired, then let the
+            // toolbar re-evaluate (selection may have been made by the RichTextEditor while
+            // toolbar checks were suppressed by the armed flag).
             e.Pointer.Capture(null);
+            GetEditableBlockForViewModel(clickAnchorBlock)?.NotifySelectionChangedByEditor();
         }
     }
 

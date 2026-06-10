@@ -177,7 +177,7 @@ public partial class BlockEditor
     /// Clears text selection (SelectionStart/SelectionEnd) in every block except the one at exceptBlockIndex.
     /// Pass -1 to clear all blocks. Used so a new press or click on empty space clears previous cross-block selection.
     /// </summary>
-    private void ClearTextSelectionInAllBlocksExcept(BlockViewModel? exceptBlock)
+    internal void ClearTextSelectionInAllBlocksExcept(BlockViewModel? exceptBlock)
     {
         // Only realized blocks have a RichTextEditor / selection to clear. Walking the full
         // document used to be O(N) calls into GetEditableBlockForViewModel, each cache-miss
@@ -259,7 +259,9 @@ public partial class BlockEditor
             {
                 // Single block: select text from anchor to current point
                 var ptInBlock = this.TranslatePoint(currentPoint, editableBlock);
-                int curChar = ptInBlock.HasValue ? editableBlock.GetCharacterIndexFromPoint(ptInBlock.Value) : anchorChar;
+                int curChar = ptInBlock.HasValue ? editableBlock.GetCharacterIndexFromPoint(ptInBlock.Value) : -1;
+                if (curChar < 0)
+                    curChar = anchorChar;
                 int selStart = Math.Min(anchorChar, curChar);
                 int selEnd = Math.Max(anchorChar, curChar);
                 editableBlock.ApplyTextSelection(selStart, selEnd);
@@ -276,7 +278,11 @@ public partial class BlockEditor
             {
                 // Endpoint block: text from start to current point (forward) or current point to end (backward)
                 var ptInBlock = this.TranslatePoint(currentPoint, editableBlock);
-                int curChar = ptInBlock.HasValue ? editableBlock.GetCharacterIndexFromPoint(ptInBlock.Value) : 0;
+                int curChar = ptInBlock.HasValue ? editableBlock.GetCharacterIndexFromPoint(ptInBlock.Value) : -1;
+                // Hit-test failure (row virtualizing, layout in flight): treat the endpoint block as
+                // fully covered instead of collapsing its selection to the block start.
+                if (curChar < 0)
+                    curChar = forward ? len : 0;
                 curChar = Math.Clamp(curChar, 0, len);
                 if (forward)
                     editableBlock.ApplyTextSelection(0, curChar);

@@ -2,43 +2,29 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
 using Avalonia.Input;
-using Avalonia.Input.Platform;
-using Avalonia.Interactivity;
+using Avalonia.Layout;
 using Avalonia.Media;
-using Avalonia.Media.Imaging;
-using Avalonia.Platform.Storage;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
-using Avalonia.Layout;
 using System;
 using System.Collections.Generic;
-using System.Diagnostics;
-using System.Diagnostics.CodeAnalysis;
 using System.Collections.ObjectModel;
-using System.Collections.Specialized;
-using System.ComponentModel;
-using System.IO;
+using System.Diagnostics;
 using System.Linq;
-using System.Net.Http;
-using System.Runtime.CompilerServices;
-using System.Text.Json;
-using System.Threading;
-using System.Threading.Tasks;
-using Microsoft.Extensions.DependencyInjection;
-using Mnemo.Core.Formatting;
-using Mnemo.Core.History;
 using Mnemo.Core.Models;
-using Mnemo.Core.Services;
-using Mnemo.Infrastructure.Common;
-using Mnemo.UI.Components.BlockEditor.History;
-using Mnemo.UI.Services;
 
 namespace Mnemo.UI.Components.BlockEditor;
 
-public partial class BlockEditor
+/// <summary>
+/// Block reorder drag-and-drop: magnetic gap bands, split/column drop targets, and drop execution.
+/// </summary>
+internal sealed class BlockDragDropCoordinator
 {
-    #region Drag-drop: magnetic gap bands (insert index from cursor Y)
+    private readonly BlockEditor _host;
 
+    internal BlockDragDropCoordinator(BlockEditor host) => _host = host;
+
+    
     private int _currentDropInsertIndex = -1;
     private EditableBlock? _currentDropIndicatorBlock;
     private BlockViewModel? _splitDropTargetBlock;
@@ -46,6 +32,30 @@ public partial class BlockEditor
     private TwoColumnBlockViewModel? _columnDropTarget;
     private bool _columnDropLeft;
     private int _columnDropInsertIndex = -1;
+
+    internal TwoColumnBlockViewModel? ColumnDropTarget
+    {
+        get => _columnDropTarget;
+        set => _columnDropTarget = value;
+    }
+
+    internal bool ColumnDropLeft
+    {
+        get => _columnDropLeft;
+        set => _columnDropLeft = value;
+    }
+
+    internal int ColumnDropInsertIndex
+    {
+        get => _columnDropInsertIndex;
+        set => _columnDropInsertIndex = value;
+    }
+
+    internal int DropInsertIndex
+    {
+        get => _currentDropInsertIndex;
+        set => _currentDropInsertIndex = value;
+    }
 
     // Fraction of block height that acts as a "snap-to-boundary" zone.
     // Only the top/bottom portion triggers an insert-before/after decision;
@@ -61,7 +71,7 @@ public partial class BlockEditor
     /// </summary>
     public void HandleBlockDragOver(Point cursorPosInEditor, BlockViewModel.BlockReorderDragPayload payload)
     {
-        if (payload.BlocksInDocumentOrder.Count == 0 || Blocks.Count == 0)
+        if (payload.BlocksInDocumentOrder.Count == 0 || _host.Blocks.Count == 0)
         {
             ClearDropIndicator();
             return;
@@ -110,7 +120,7 @@ public partial class BlockEditor
         }
 
         var sortedIndices = payload.BlocksInDocumentOrder
-            .Select(b => Blocks.IndexOf(b))
+            .Select(b => _host.Blocks.IndexOf(b))
             .Where(i => i >= 0)
             .OrderBy(i => i)
             .ToList();
@@ -121,7 +131,7 @@ public partial class BlockEditor
                 ClearDropIndicator();
                 return;
             }
-            var ti = Blocks.IndexOf(otc);
+            var ti = _host.Blocks.IndexOf(otc);
             if (ti < 0)
             {
                 ClearDropIndicator();
@@ -145,7 +155,7 @@ public partial class BlockEditor
         if (payload.BlocksInDocumentOrder.Count == 1)
         {
             var draggedBlock = primary;
-            var draggedIndex = Blocks.IndexOf(draggedBlock);
+            var draggedIndex = _host.Blocks.IndexOf(draggedBlock);
             if (draggedIndex >= 0 && insertIndex == draggedIndex)
             {
                 ClearDropIndicator();
@@ -154,8 +164,8 @@ public partial class BlockEditor
 
             if (draggedIndex >= 0 && insertIndex == draggedIndex + 1)
             {
-                var sib = draggedBlock.GetColumnSibling(Blocks);
-                if (sib == null || Blocks.IndexOf(sib) == draggedIndex + 1)
+                var sib = draggedBlock.GetColumnSibling(_host.Blocks);
+                if (sib == null || _host.Blocks.IndexOf(sib) == draggedIndex + 1)
                 {
                     ClearDropIndicator();
                     return;
@@ -166,7 +176,7 @@ public partial class BlockEditor
         if (_splitDropTargetBlock == null
             && _columnDropTarget == null
             && insertIndex == _currentDropInsertIndex
-            && this.FindControl<Border>("BlockReorderDropLineOverlay") is { IsVisible: true })
+            && _host.FindControl<Border>("BlockReorderDropLineOverlay") is { IsVisible: true })
             return;
 
         ClearDropIndicator();
@@ -178,10 +188,10 @@ public partial class BlockEditor
     /// <summary>
     /// Horizontal insert-before/after line in <see cref="BlockDragGhostOverlay"/> space (full row width, including split rows).
     /// </summary>
-    private void ShowHorizontalReorderDropLineInOverlay(int insertIndex)
+    internal void ShowHorizontalReorderDropLineInOverlay(int insertIndex)
     {
-        var overlay = this.FindControl<LayoutOverlayPanel>("BlockDragGhostOverlay");
-        var line = this.FindControl<Border>("BlockReorderDropLineOverlay");
+        var overlay = _host.FindControl<LayoutOverlayPanel>("BlockDragGhostOverlay");
+        var line = _host.FindControl<Border>("BlockReorderDropLineOverlay");
         if (overlay == null || line == null) return;
 
         var rowContainer = GetRowContainerForInsertIndex(insertIndex);
@@ -194,7 +204,7 @@ public partial class BlockEditor
         double rowH = rowContainer.Bounds.Height;
         if (w <= 0 || rowH <= 0) return;
 
-        double y = insertIndex < Blocks.Count
+        double y = insertIndex < _host.Blocks.Count
             ? origin.Value.Y
             : origin.Value.Y + rowH - HorizontalDropLineHeight;
 
@@ -219,10 +229,10 @@ public partial class BlockEditor
         _splitDropTargetBlock = null;
         _columnDropTarget = null;
         _columnDropInsertIndex = -1;
-        if (this.FindControl<Border>("BlockReorderDropLineOverlay") is { } dropLine)
+        if (_host.FindControl<Border>("BlockReorderDropLineOverlay") is { } dropLine)
         {
             dropLine.IsVisible = false;
-            this.FindControl<LayoutOverlayPanel>("BlockDragGhostOverlay")?.InvalidateArrange();
+            _host.FindControl<LayoutOverlayPanel>("BlockDragGhostOverlay")?.InvalidateArrange();
         }
         if (_currentDropIndicatorBlock != null)
         {
@@ -235,16 +245,16 @@ public partial class BlockEditor
     /// <summary>Begin undo group for dragging the column splitter (pointer down).</summary>
     public void BeginColumnSplitResize()
     {
-        _isColumnSplitResizing = true;
-        BeginStructuralChange();
+        _host._isColumnSplitResizing = true;
+        _host.BeginStructuralChange();
     }
 
     /// <summary>Commit undo group after column splitter release.</summary>
     public void CommitColumnSplitResize()
     {
-        _isColumnSplitResizing = false;
-        CommitStructuralChange("Resize columns");
-        NotifyBlocksChanged();
+        _host._isColumnSplitResizing = false;
+        _host.CommitStructuralChange("Resize columns");
+        _host.NotifyBlocksChanged();
     }
 
     /// <summary>Build reorder payload: Ctrl/Meta + multi-selection moves all selected (column pairs expanded).</summary>
@@ -261,7 +271,7 @@ public partial class BlockEditor
             };
         }
 
-        var selected = BlockHierarchy.EnumerateInDocumentOrder(Blocks).Where(b => b.IsSelected).ToList();
+        var selected = BlockHierarchy.EnumerateInDocumentOrder(_host.Blocks).Where(b => b.IsSelected).ToList();
         if (selected.Count < 2)
         {
             return new BlockViewModel.BlockReorderDragPayload
@@ -279,13 +289,13 @@ public partial class BlockEditor
             changed = false;
             foreach (var vm in expanded.ToList())
             {
-                var sib = vm.GetColumnSibling(Blocks);
+                var sib = vm.GetColumnSibling(_host.Blocks);
                 if (sib != null && expanded.Add(sib))
                     changed = true;
             }
         }
 
-        var docOrder = GetDocumentOrderBlocks();
+        var docOrder = _host.GetDocumentOrderBlocks();
         var ordered = expanded.OrderBy(b =>
         {
             var i = docOrder.IndexOf(b);
@@ -346,7 +356,7 @@ public partial class BlockEditor
 
     private bool TryPerformMultiBlockReorder(BlockViewModel.BlockReorderDragPayload payload)
     {
-        if (_currentDropInsertIndex < 0 || _currentDropInsertIndex > Blocks.Count)
+        if (_currentDropInsertIndex < 0 || _currentDropInsertIndex > _host.Blocks.Count)
             return false;
 
         var move = payload.BlocksInDocumentOrder.ToList();
@@ -356,7 +366,7 @@ public partial class BlockEditor
         var indices = new List<int>();
         foreach (var b in move)
         {
-            int i = Blocks.IndexOf(b);
+            int i = _host.Blocks.IndexOf(b);
             if (i < 0)
                 return false;
             indices.Add(i);
@@ -369,94 +379,94 @@ public partial class BlockEditor
         int insertGapOriginal = _currentDropInsertIndex;
 
         // Important: snapshot before reordering so undo restores original block positions.
-        BeginStructuralChange();
+        _host.BeginStructuralChange();
         foreach (var idx in indices.OrderByDescending(i => i))
         {
-            var vm = Blocks[idx];
-            UnsubscribeFromBlock(vm, registerReleasedStoredImagePath: false);
-            Blocks.RemoveAt(idx);
+            var vm = _host.Blocks[idx];
+            _host.UnsubscribeFromBlock(vm, registerReleasedStoredImagePath: false);
+            _host.Blocks.RemoveAt(idx);
         }
 
         int removedBefore = indices.Count(i => i < insertGapOriginal);
         int newInsert = insertGapOriginal - removedBefore;
-        newInsert = Math.Clamp(newInsert, 0, Blocks.Count);
+        newInsert = Math.Clamp(newInsert, 0, _host.Blocks.Count);
 
         foreach (var vm in move)
         {
-            SubscribeToBlock(vm);
-            Blocks.Insert(newInsert++, vm);
+            _host.SubscribeToBlock(vm);
+            _host.Blocks.Insert(newInsert++, vm);
         }
 
-        ReorderBlocks();
-        CommitStructuralChange("Move blocks");
-        NotifyBlocksChanged();
+        _host.ReorderBlocks();
+        _host.CommitStructuralChange("Move blocks");
+        _host.NotifyBlocksChanged();
         return true;
     }
 
     private bool TryPerformDropSingle(BlockViewModel draggedBlock)
     {
-        if (_currentDropInsertIndex < 0 || _currentDropInsertIndex > Blocks.Count)
+        if (_currentDropInsertIndex < 0 || _currentDropInsertIndex > _host.Blocks.Count)
             return false;
-        // Important: every reorder path below must be wrapped in a matched Begin/CommitStructuralChange pair
+        // Important: every reorder path below must be wrapped in a matched Begin/_host.CommitStructuralChange pair
         // so undo restores the pre-drop block order. The three cases (detach-from-column, paired-column-move,
         // simple move) each capture their own snapshot.
-        var draggedIndex = Blocks.IndexOf(draggedBlock);
+        var draggedIndex = _host.Blocks.IndexOf(draggedBlock);
         if (draggedIndex < 0)
         {
-            if (draggedBlock.OwnerTwoColumn == null && draggedBlock.GetColumnSibling(Blocks) == null)
+            if (draggedBlock.OwnerTwoColumn == null && draggedBlock.GetColumnSibling(_host.Blocks) == null)
                 return false;
-            BeginStructuralChange();
+            _host.BeginStructuralChange();
             var splitAfterDetach = DetachColumnCell(draggedBlock);
-            var insertT = Math.Clamp(_currentDropInsertIndex, 0, Blocks.Count);
-            SubscribeToBlock(draggedBlock);
-            Blocks.Insert(insertT, draggedBlock);
-            ReorderBlocks();
-            TryCollapseSplitAfterDragOut(splitAfterDetach);
-            CommitStructuralChange("Move block");
-            NotifyBlocksChanged();
+            var insertT = Math.Clamp(_currentDropInsertIndex, 0, _host.Blocks.Count);
+            _host.SubscribeToBlock(draggedBlock);
+            _host.Blocks.Insert(insertT, draggedBlock);
+            _host.ReorderBlocks();
+            _host.TryCollapseSplitAfterDragOut(splitAfterDetach);
+            _host.CommitStructuralChange("Move block");
+            _host.NotifyBlocksChanged();
             return true;
         }
 
-        // Side-by-side pair: Blocks.Move does not unpair / adjust meta; detach then insert at target gap.
-        if (draggedBlock.GetColumnSibling(Blocks) != null)
+        // Side-by-side pair: _host.Blocks.Move does not unpair / adjust meta; detach then insert at target gap.
+        if (draggedBlock.GetColumnSibling(_host.Blocks) != null)
         {
             var rawInsert = _currentDropInsertIndex;
-            if (rawInsert < 0 || rawInsert > Blocks.Count)
+            if (rawInsert < 0 || rawInsert > _host.Blocks.Count)
                 return false;
             if (rawInsert == draggedIndex)
                 return false;
             if (rawInsert == draggedIndex + 1)
             {
-                var sib = draggedBlock.GetColumnSibling(Blocks);
-                var sibIdx = sib != null ? Blocks.IndexOf(sib) : -1;
+                var sib = draggedBlock.GetColumnSibling(_host.Blocks);
+                var sibIdx = sib != null ? _host.Blocks.IndexOf(sib) : -1;
                 if (sibIdx == draggedIndex + 1)
                     return false;
             }
 
-            BeginStructuralChange();
+            _host.BeginStructuralChange();
             var splitAfterDetach = DetachColumnCell(draggedBlock);
             var insertAt = draggedIndex < rawInsert ? rawInsert - 1 : rawInsert;
-            insertAt = Math.Clamp(insertAt, 0, Blocks.Count);
-            SubscribeToBlock(draggedBlock);
-            Blocks.Insert(insertAt, draggedBlock);
-            ReorderBlocks();
-            TryCollapseSplitAfterDragOut(splitAfterDetach);
-            CommitStructuralChange("Move block");
-            NotifyBlocksChanged();
+            insertAt = Math.Clamp(insertAt, 0, _host.Blocks.Count);
+            _host.SubscribeToBlock(draggedBlock);
+            _host.Blocks.Insert(insertAt, draggedBlock);
+            _host.ReorderBlocks();
+            _host.TryCollapseSplitAfterDragOut(splitAfterDetach);
+            _host.CommitStructuralChange("Move block");
+            _host.NotifyBlocksChanged();
             return true;
         }
 
-        var insertIndex = Math.Min(_currentDropInsertIndex, Blocks.Count - 1);
+        var insertIndex = Math.Min(_currentDropInsertIndex, _host.Blocks.Count - 1);
         var targetIndex = draggedIndex < insertIndex ? insertIndex - 1 : insertIndex;
 
         if (draggedIndex == targetIndex) return false;
 
-        BeginStructuralChange();
-        Blocks.Move(draggedIndex, targetIndex);
-        for (int i = 0; i < Blocks.Count; i++)
-            Blocks[i].Order = i;
-        CommitStructuralChange("Move block");
-        NotifyBlocksChanged();
+        _host.BeginStructuralChange();
+        _host.Blocks.Move(draggedIndex, targetIndex);
+        for (int i = 0; i < _host.Blocks.Count; i++)
+            _host.Blocks[i].Order = i;
+        _host.CommitStructuralChange("Move block");
+        _host.NotifyBlocksChanged();
         return true;
     }
 
@@ -494,7 +504,7 @@ public partial class BlockEditor
             return false;
 
         if (ReferenceEquals(_columnDropTarget, tc) && _columnDropLeft == left && _columnDropInsertIndex == insertIdx
-            && this.FindControl<Border>("BlockReorderDropLineOverlay") is { IsVisible: true })
+            && _host.FindControl<Border>("BlockReorderDropLineOverlay") is { IsVisible: true })
             return true;
 
         ClearDropIndicator();
@@ -506,7 +516,7 @@ public partial class BlockEditor
         return true;
     }
 
-    private bool TryGetColumnDropInsert(Point cursor, BlockViewModel dragged, out TwoColumnBlockViewModel tc,
+    internal bool TryGetColumnDropInsert(Point cursor, BlockViewModel dragged, out TwoColumnBlockViewModel tc,
         out bool leftColumn, out int insertIndex)
     {
         tc = null!;
@@ -515,15 +525,15 @@ public partial class BlockEditor
         if (dragged is TwoColumnBlockViewModel || dragged.Type == BlockType.Divider)
             return false;
 
-        for (int r = 0; r < BlockRows.Count; r++)
+        for (int r = 0; r < _host.BlockRows.Count; r++)
         {
-            if (BlockRows[r] is not SplitBlockRowViewModel sp) continue;
+            if (_host.BlockRows[r] is not SplitBlockRowViewModel sp) continue;
             var rowHost = TryGetRealizedRowContainer(r);
             if (rowHost == null) continue; // virtualized out
             tc = sp.TwoColumn;
             var splitView = rowHost.GetVisualDescendants().OfType<SplitBlockRowView>().FirstOrDefault();
             if (splitView == null) continue;
-            // Use full column grid cells (RootGrid columns 0 / 2), not ItemsControl bounds â€” when one column
+            // Use full column grid cells (RootGrid columns 0 / 2), not ItemsControl bounds Ã¢â‚¬â€ when one column
             // is shorter than the other, empty vertical space below the shorter stack still belongs to that column.
             var rootGrid = splitView.FindControl<Grid>("RootGrid");
             if (rootGrid == null) continue;
@@ -538,8 +548,8 @@ public partial class BlockEditor
             }
 
             if (leftColHost == null || rightColHost == null) continue;
-            var lTl = leftColHost.TranslatePoint(new Point(0, 0), this);
-            var rTl = rightColHost.TranslatePoint(new Point(0, 0), this);
+            var lTl = leftColHost.TranslatePoint(new Point(0, 0), _host);
+            var rTl = rightColHost.TranslatePoint(new Point(0, 0), _host);
             if (!lTl.HasValue || !rTl.HasValue) continue;
             var leftRect = new Rect(lTl.Value, leftColHost.Bounds.Size);
             var rightRect = new Rect(rTl.Value, rightColHost.Bounds.Size);
@@ -585,10 +595,10 @@ public partial class BlockEditor
 
     private SplitBlockRowView? FindSplitRowView(TwoColumnBlockViewModel tc)
     {
-        if (BlocksItemsControl == null) return null;
-        for (int r = 0; r < BlockRows.Count; r++)
+        if (_host.BlocksItemsControl == null) return null;
+        for (int r = 0; r < _host.BlockRows.Count; r++)
         {
-            if (BlockRows[r] is not SplitBlockRowViewModel sp || !ReferenceEquals(sp.TwoColumn, tc))
+            if (_host.BlockRows[r] is not SplitBlockRowViewModel sp || !ReferenceEquals(sp.TwoColumn, tc))
                 continue;
             var rowHost = TryGetRealizedRowContainer(r);
             return rowHost?.GetVisualDescendants().OfType<SplitBlockRowView>().FirstOrDefault();
@@ -596,10 +606,10 @@ public partial class BlockEditor
         return null;
     }
 
-    private void ShowColumnDropLineInOverlay(TwoColumnBlockViewModel tc, bool leftColumn, int insertIndex)
+    internal void ShowColumnDropLineInOverlay(TwoColumnBlockViewModel tc, bool leftColumn, int insertIndex)
     {
-        var overlay = this.FindControl<LayoutOverlayPanel>("BlockDragGhostOverlay");
-        var line = this.FindControl<Border>("BlockReorderDropLineOverlay");
+        var overlay = _host.FindControl<LayoutOverlayPanel>("BlockDragGhostOverlay");
+        var line = _host.FindControl<Border>("BlockReorderDropLineOverlay");
         if (overlay == null || line == null) return;
 
         var col = leftColumn ? tc.LeftColumnBlocks : tc.RightColumnBlocks;
@@ -658,7 +668,7 @@ public partial class BlockEditor
         if (sameList && (insertIndex == fromIdx || insertIndex == fromIdx + 1))
             return false;
 
-        BeginStructuralChange();
+        _host.BeginStructuralChange();
 
         if (sameList)
         {
@@ -675,28 +685,28 @@ public partial class BlockEditor
             TwoColumnBlockViewModel? detachedFrom = null;
             if (dragged.OwnerTwoColumn != null)
                 detachedFrom = DetachColumnCell(dragged);
-            else if (dragged.GetColumnSibling(Blocks) != null)
+            else if (dragged.GetColumnSibling(_host.Blocks) != null)
                 detachedFrom = DetachColumnCell(dragged);
             else
             {
-                var ti = Blocks.IndexOf(dragged);
+                var ti = _host.Blocks.IndexOf(dragged);
                 if (ti >= 0)
                 {
-                    UnsubscribeFromBlock(dragged, registerReleasedStoredImagePath: false);
-                    Blocks.RemoveAt(ti);
+                    _host.UnsubscribeFromBlock(dragged, registerReleasedStoredImagePath: false);
+                    _host.Blocks.RemoveAt(ti);
                 }
             }
 
             BlockHierarchy.WireChildOwnership(tc, dragged, leftColumn);
             insertIndex = Math.Clamp(insertIndex, 0, col.Count);
-            SubscribeToBlock(dragged);
+            _host.SubscribeToBlock(dragged);
             col.Insert(insertIndex, dragged);
-            TryCollapseSplitAfterDragOut(detachedFrom);
+            _host.TryCollapseSplitAfterDragOut(detachedFrom);
         }
 
-        ReorderBlocks();
-        CommitStructuralChange("Move to column");
-        NotifyBlocksChanged();
+        _host.ReorderBlocks();
+        _host.CommitStructuralChange("Move to column");
+        _host.NotifyBlocksChanged();
         return true;
     }
 
@@ -704,7 +714,7 @@ public partial class BlockEditor
     private static double GetSplitDropSideBandWidth(double contentWidth)
     {
         if (contentWidth <= 0) return 0;
-        // ~10% of content, clamped â€” keeps most width for vertical reorder only.
+        // ~10% of content, clamped Ã¢â‚¬â€ keeps most width for vertical reorder only.
         double band = contentWidth * 0.10;
         band = Math.Clamp(band, 52, 96);
         double maxHalf = Math.Max(0, (contentWidth - 24) * 0.5);
@@ -715,10 +725,10 @@ public partial class BlockEditor
     {
         left = 0;
         right = 0;
-        if (BlocksItemsControl == null) return false;
-        var tl = BlocksItemsControl.TranslatePoint(new Point(0, 0), this);
+        if (_host.BlocksItemsControl == null) return false;
+        var tl = _host.BlocksItemsControl.TranslatePoint(new Point(0, 0), _host);
         if (!tl.HasValue) return false;
-        double w = BlocksItemsControl.Bounds.Width;
+        double w = _host.BlocksItemsControl.Bounds.Width;
         if (w <= 0) return false;
         left = tl.Value.X;
         right = tl.Value.X + w;
@@ -764,7 +774,7 @@ public partial class BlockEditor
             var (r, _, top, bottom) = boundsList[i];
             if (cursor.Y < top || cursor.Y >= bottom) continue;
 
-            var row = BlockRows[r];
+            var row = _host.BlockRows[r];
             if (row is SplitBlockRowViewModel splitRow)
             {
                 BlockViewModel? hit = null;
@@ -828,7 +838,7 @@ public partial class BlockEditor
         if (cell.OwnerTwoColumn is TwoColumnBlockViewModel tc)
         {
             var col = cell.IsLeftColumn ? tc.LeftColumnBlocks : tc.RightColumnBlocks;
-            UnsubscribeFromBlock(cell, registerReleasedStoredImagePath: false);
+            _host.UnsubscribeFromBlock(cell, registerReleasedStoredImagePath: false);
             col.Remove(cell);
             BlockHierarchy.ClearChildOwnership(cell);
             if (col.Count == 0)
@@ -836,17 +846,17 @@ public partial class BlockEditor
                 var ph = BlockFactory.CreateBlock(BlockType.Text, 0);
                 BlockHierarchy.WireChildOwnership(tc, ph, cell.IsLeftColumn);
                 col.Add(ph);
-                SubscribeToBlock(ph);
+                _host.SubscribeToBlock(ph);
             }
             return tc;
         }
 
-        var sibling = cell.GetColumnSibling(Blocks);
+        var sibling = cell.GetColumnSibling(_host.Blocks);
         if (sibling == null) return null;
-        UnsubscribeFromBlock(cell, registerReleasedStoredImagePath: false);
-        var idx = Blocks.IndexOf(cell);
+        _host.UnsubscribeFromBlock(cell, registerReleasedStoredImagePath: false);
+        var idx = _host.Blocks.IndexOf(cell);
         if (idx < 0) return null;
-        Blocks.RemoveAt(idx);
+        _host.Blocks.RemoveAt(idx);
         ColumnPairHelper.ClearPair(cell, sibling);
         return null;
     }
@@ -859,45 +869,45 @@ public partial class BlockEditor
         if (target.OwnerTwoColumn != null)
             return false;
 
-        var targetIdx = Blocks.IndexOf(target);
+        var targetIdx = _host.Blocks.IndexOf(target);
         if (targetIdx < 0) return false;
 
-        BeginStructuralChange();
+        _host.BeginStructuralChange();
 
         TwoColumnBlockViewModel? splitLeftBehind = null;
-        if (dragged.OwnerTwoColumn != null || dragged.GetColumnSibling(Blocks) != null)
+        if (dragged.OwnerTwoColumn != null || dragged.GetColumnSibling(_host.Blocks) != null)
             splitLeftBehind = DetachColumnCell(dragged);
 
-        targetIdx = Blocks.IndexOf(target);
+        targetIdx = _host.Blocks.IndexOf(target);
         if (targetIdx < 0) return false;
 
-        var targetSib = target.GetColumnSibling(Blocks);
+        var targetSib = target.GetColumnSibling(_host.Blocks);
         if (targetSib != null)
         {
-            var tIdxBefore = Blocks.IndexOf(target);
-            var sIdx = Blocks.IndexOf(targetSib);
-            UnsubscribeFromBlock(targetSib, registerReleasedStoredImagePath: false);
-            Blocks.RemoveAt(sIdx);
+            var tIdxBefore = _host.Blocks.IndexOf(target);
+            var sIdx = _host.Blocks.IndexOf(targetSib);
+            _host.UnsubscribeFromBlock(targetSib, registerReleasedStoredImagePath: false);
+            _host.Blocks.RemoveAt(sIdx);
             ColumnPairHelper.ClearPair(target, targetSib);
-            SubscribeToBlock(targetSib);
-            var newTIdx = Blocks.IndexOf(target);
+            _host.SubscribeToBlock(targetSib);
+            var newTIdx = _host.Blocks.IndexOf(target);
             if (sIdx < tIdxBefore)
-                Blocks.Insert(newTIdx, targetSib);
+                _host.Blocks.Insert(newTIdx, targetSib);
             else
-                Blocks.Insert(newTIdx + 1, targetSib);
-            targetIdx = Blocks.IndexOf(target);
+                _host.Blocks.Insert(newTIdx + 1, targetSib);
+            targetIdx = _host.Blocks.IndexOf(target);
         }
 
-        var draggedIdx = Blocks.IndexOf(dragged);
+        var draggedIdx = _host.Blocks.IndexOf(dragged);
         if (draggedIdx >= 0)
         {
-            UnsubscribeFromBlock(dragged, registerReleasedStoredImagePath: false);
-            Blocks.RemoveAt(draggedIdx);
+            _host.UnsubscribeFromBlock(dragged, registerReleasedStoredImagePath: false);
+            _host.Blocks.RemoveAt(draggedIdx);
             if (draggedIdx < targetIdx) targetIdx--;
         }
 
-        UnsubscribeFromBlock(target, registerReleasedStoredImagePath: false);
-        Blocks.RemoveAt(targetIdx);
+        _host.UnsubscribeFromBlock(target, registerReleasedStoredImagePath: false);
+        _host.Blocks.RemoveAt(targetIdx);
 
         var left = dropOnLeftEdge ? dragged : target;
         var right = dropOnLeftEdge ? target : dragged;
@@ -907,19 +917,19 @@ public partial class BlockEditor
         BlockHierarchy.WireChildOwnership(tc, right, false);
         tc.LeftColumnBlocks.Add(left);
         tc.RightColumnBlocks.Add(right);
-        SubscribeToBlock(tc);
-        Blocks.Insert(targetIdx, tc);
+        _host.SubscribeToBlock(tc);
+        _host.Blocks.Insert(targetIdx, tc);
 
-        ReorderBlocks();
-        TryCollapseSplitAfterDragOut(splitLeftBehind);
-        CommitStructuralChange("Split into columns");
-        NotifyBlocksChanged();
+        _host.ReorderBlocks();
+        _host.TryCollapseSplitAfterDragOut(splitLeftBehind);
+        _host.CommitStructuralChange("Split into columns");
+        _host.NotifyBlocksChanged();
 
         Dispatcher.UIThread.Post(() => left.IsFocused = true, DispatcherPriority.Input);
         return true;
     }
 
-    private int GetInsertIndex(double cursorY)
+    internal int GetInsertIndex(double cursorY)
     {
         var rowBounds = GetRealizedRowGeometryInEditorOrder();
         if (rowBounds.Count == 0)
@@ -930,7 +940,7 @@ public partial class BlockEditor
             var (r, _, top, bottom) = rowBounds[i];
             if (cursorY < top || cursorY >= bottom) continue;
 
-            var row = BlockRows[r];
+            var row = _host.BlockRows[r];
             int insertBeforeTop = row.StartBlockIndex;
             int insertAfterBottom = row.StartBlockIndex + row.BlockSpan;
 
@@ -951,9 +961,9 @@ public partial class BlockEditor
         }
 
         // Cursor was past every realized row's vertical range. With virtualization rows beyond
-        // the viewport aren't realized; falling through to Blocks.Count is correct for both the
+        // the viewport aren't realized; falling through to _host.Blocks.Count is correct for both the
         // "cursor below the last block" case and the "cursor past a virtualized region" case.
-        return Blocks.Count;
+        return _host.Blocks.Count;
     }
 
     /// <summary>
@@ -963,7 +973,7 @@ public partial class BlockEditor
     private bool TryGetTopLevelInsertInSplitRowSnapBand(double cursorY, TwoColumnBlockViewModel tc, out int insertIndex)
     {
         insertIndex = -1;
-        if (Blocks.IndexOf(tc) < 0) return false;
+        if (_host.Blocks.IndexOf(tc) < 0) return false;
 
         var rowBounds = GetRealizedRowGeometryInEditorOrder();
         if (rowBounds.Count == 0)
@@ -972,13 +982,13 @@ public partial class BlockEditor
         for (int i = 0; i < rowBounds.Count; i++)
         {
             var (r, _, top, bottom) = rowBounds[i];
-            if (BlockRows[r] is not SplitBlockRowViewModel sp || !ReferenceEquals(sp.TwoColumn, tc))
+            if (_host.BlockRows[r] is not SplitBlockRowViewModel sp || !ReferenceEquals(sp.TwoColumn, tc))
                 continue;
 
             if (cursorY < top || cursorY >= bottom)
                 continue;
 
-            var row = BlockRows[r];
+            var row = _host.BlockRows[r];
             int insertBeforeTop = row.StartBlockIndex;
             int insertAfterBottom = row.StartBlockIndex + row.BlockSpan;
             var height = bottom - top;
@@ -1001,18 +1011,18 @@ public partial class BlockEditor
 
     /// <summary>
     /// Row-index-aware enumeration of realized item containers. With UI virtualization the
-    /// realized set is a subset of <see cref="BlockRows"/>; previously the helpers assumed
-    /// 1:1 with row indices, which breaks once <see cref="BlocksItemsControl"/> virtualizes.
+    /// realized set is a subset of <see cref="_host.BlockRows"/>; previously the helpers assumed
+    /// 1:1 with row indices, which breaks once <see cref="_host.BlocksItemsControl"/> virtualizes.
     /// </summary>
     private List<(int RowIndex, Control Container, double Top, double Bottom)> GetRealizedRowGeometryInEditorOrder()
     {
         var list = new List<(int, Control, double, double)>();
-        if (BlocksItemsControl == null) return list;
+        if (_host.BlocksItemsControl == null) return list;
 
-        for (int i = 0; i < BlockRows.Count; i++)
+        for (int i = 0; i < _host.BlockRows.Count; i++)
         {
-            if (BlocksItemsControl.TryGetElement(i) is not Control container) continue;
-            var topLeft = container.TranslatePoint(new Point(0, 0), this);
+            if (_host.BlocksItemsControl.TryGetElement(i) is not Control container) continue;
+            var topLeft = container.TranslatePoint(new Point(0, 0), _host);
             if (!topLeft.HasValue) continue;
             var h = container.Bounds.Height;
             if (double.IsNaN(h) || h <= 0) continue;
@@ -1023,48 +1033,48 @@ public partial class BlockEditor
 
     /// <summary>
     /// Returns the realized container for <paramref name="rowIndex"/> or null when virtualized out.
-    /// Cheap (O(1)) â€” uses <see cref="ItemsRepeater.TryGetElement(int)"/>.
+    /// Cheap (O(1)) Ã¢â‚¬â€ uses <see cref="ItemsRepeater.TryGetElement(int)"/>.
     /// </summary>
     private Control? TryGetRealizedRowContainer(int rowIndex)
     {
-        if (BlocksItemsControl == null) return null;
-        if (rowIndex < 0 || rowIndex >= BlockRows.Count) return null;
-        return BlocksItemsControl.TryGetElement(rowIndex) as Control;
+        if (_host.BlocksItemsControl == null) return null;
+        if (rowIndex < 0 || rowIndex >= _host.BlockRows.Count) return null;
+        return _host.BlocksItemsControl.TryGetElement(rowIndex) as Control;
     }
 
     private List<Control>? GetBlockContainersInOrder()
     {
-        if (BlocksItemsControl == null) return null;
+        if (_host.BlocksItemsControl == null) return null;
 
         // ItemsRepeater realizes only rows in the viewport; iterate row indices and pick up the
         // realized ones in order. Returns null when nothing has been realized yet (e.g. first
         // frame before measure).
-        var list = new List<Control>(Math.Min(BlockRows.Count, 64));
-        for (int i = 0; i < BlockRows.Count; i++)
+        var list = new List<Control>(Math.Min(_host.BlockRows.Count, 64));
+        for (int i = 0; i < _host.BlockRows.Count; i++)
         {
-            if (BlocksItemsControl.TryGetElement(i) is Control c)
+            if (_host.BlocksItemsControl.TryGetElement(i) is Control c)
                 list.Add(c);
         }
         return list.Count > 0 ? list : null;
     }
 
-    private EditableBlock? GetEditableBlockForViewModel(BlockViewModel? vm)
+    internal EditableBlock? GetEditableBlockForViewModel(BlockViewModel? vm)
     {
         if (vm == null) return null;
 
-        // O(1) hot path â€” populated by EditableBlock.OnControlLoaded/Unloaded. Hot callers
+        // O(1) hot path Ã¢â‚¬â€ populated by EditableBlock.OnControlLoaded/Unloaded. Hot callers
         // (ClearTextSelectionInAllBlocksExcept, find/replace, cross-block selection) used to
-        // walk the entire visual tree per block; with 1500 blocks that was O(NÂ²).
-        if (_realizedBlocksByVm.TryGetValue(vm, out var cached))
+        // walk the entire visual tree per block; with 1500 _host.Blocks that was O(NÃ‚Â²).
+        if (_host._realizedBlocksByVm.TryGetValue(vm, out var cached))
         {
             // Container can survive in the dict for one tick after detach; verify DataContext.
             if (ReferenceEquals(cached.DataContext, vm))
                 return cached;
-            _realizedBlocksByVm.Remove(vm);
+            _host._realizedBlocksByVm.Remove(vm);
         }
 
         // Fallback (first-frame / nested column cells before Loaded fires): search only realized
-        // row roots (sparse list preserves document order among realized rows â€” index is NOT row id).
+        // row roots (sparse list preserves document order among realized rows Ã¢â‚¬â€ index is NOT row id).
         var containers = GetBlockContainersInOrder();
         if (containers == null) return null;
         for (var i = 0; i < containers.Count; i++)
@@ -1074,19 +1084,19 @@ public partial class BlockEditor
                 .FirstOrDefault(e => ReferenceEquals(e.DataContext, vm));
             if (eb != null)
             {
-                _realizedBlocksByVm[vm] = eb;
+                _host._realizedBlocksByVm[vm] = eb;
                 return eb;
             }
         }
         return null;
     }
 
-    private Rect GetEditableBlockBoundsInEditor(EditableBlock? eb) => GetControlBoundsInEditor(eb);
+    internal Rect GetEditableBlockBoundsInEditor(EditableBlock? eb) => GetControlBoundsInEditor(eb);
 
-    private Rect GetControlBoundsInEditor(Control? c)
+    internal Rect GetControlBoundsInEditor(Control? c)
     {
         if (c == null) return default;
-        var tl = c.TranslatePoint(new Point(0, 0), this);
+        var tl = c.TranslatePoint(new Point(0, 0), _host);
         if (!tl.HasValue) return default;
         return new Rect(tl.Value, c.Bounds.Size);
     }
@@ -1094,26 +1104,27 @@ public partial class BlockEditor
     /// <summary>Items row container for the row where horizontal insert <paramref name="insertIndex"/> applies, or null when virtualized out.</summary>
     private Control? GetRowContainerForInsertIndex(int insertIndex)
     {
-        if (BlocksItemsControl == null || BlockRows.Count == 0) return null;
+        if (_host.BlocksItemsControl == null || _host.BlockRows.Count == 0) return null;
 
-        if (insertIndex >= Blocks.Count)
+        if (insertIndex >= _host.Blocks.Count)
         {
             // Tail anchor: walk back to the highest realized row.
-            for (int r = BlockRows.Count - 1; r >= 0; r--)
+            for (int r = _host.BlockRows.Count - 1; r >= 0; r--)
             {
-                if (BlocksItemsControl.TryGetElement(r) is Control tail) return tail;
+                if (_host.BlocksItemsControl.TryGetElement(r) is Control tail) return tail;
             }
             return null;
         }
 
-        for (int r = 0; r < BlockRows.Count; r++)
+        for (int r = 0; r < _host.BlockRows.Count; r++)
         {
-            var row = BlockRows[r];
+            var row = _host.BlockRows[r];
             if (insertIndex >= row.StartBlockIndex && insertIndex < row.StartBlockIndex + row.BlockSpan)
-                return BlocksItemsControl.TryGetElement(r) as Control;
+                return _host.BlocksItemsControl.TryGetElement(r) as Control;
         }
         return null;
     }
 
-    #endregion
+    
 }
+

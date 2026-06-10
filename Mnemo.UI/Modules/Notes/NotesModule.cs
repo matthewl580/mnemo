@@ -17,7 +17,11 @@ public class NotesModule : IModule
 {
     public void ConfigureServices(IServiceRegistrar services)
     {
-        services.AddTransient<NotesLibrarySession>();
+        // Must be a singleton: NotesViewModel, NotesEditorSession, NotesTreeMutator and
+        // NotesDocumentMutator all need to share the same in-memory note library. With a
+        // transient registration each got its own empty instance, so e.g. child pages created
+        // by the mutator were invisible to the editor session's title resolver ("Missing note").
+        services.AddSingleton<NotesLibrarySession>();
         services.AddTransient<NotesEditorSession>();
         services.AddTransient<NotesEditorHistory>();
         services.AddTransient<NotesTreeMutator>();

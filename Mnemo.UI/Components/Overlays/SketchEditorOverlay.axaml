@@ -24,10 +24,6 @@
                             FontWeight="SemiBold"
                             Foreground="{DynamicResource TextPrimaryBrush}"
                             Text="Edit Sketch diagram" />
-                        <TextBlock
-                            FontSize="13"
-                            Foreground="{DynamicResource TextSecondaryBrush}"
-                            Text="Write Sketch on the left. The SVG preview updates on the right." />
                     </StackPanel>
                     <Button
                         Grid.Column="1"
@@ -123,10 +119,6 @@
                                         FontWeight="SemiBold"
                                         Foreground="{DynamicResource TextSecondaryBrush}"
                                         Text="Preview" />
-                                    <TextBlock
-                                        FontSize="11"
-                                        Foreground="{DynamicResource TextTertiaryBrush}"
-                                        Text="Drag to pan. Mouse wheel zooms." />
                                 </StackPanel>
                                 <StackPanel
                                     Grid.Column="1"

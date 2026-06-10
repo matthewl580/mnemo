@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
@@ -56,7 +56,7 @@ public partial class BlockEditor
     /// Captures a snapshot of the current document state for undo.
     /// If a previous snapshot was never committed (orphaned), it is discarded.
     /// </summary>
-    private void BeginStructuralChange()
+    internal void BeginStructuralChange()
     {
         if (_history == null || _isRestoringFromHistory) return;
         FlushTypingBatch();
@@ -68,7 +68,7 @@ public partial class BlockEditor
     /// <summary>
     /// Call after a structural mutation has completed. Pushes a DocumentOperation onto the undo stack.
     /// </summary>
-    private void CommitStructuralChange(string description)
+    internal void CommitStructuralChange(string description)
     {
         if (_history == null || _isRestoringFromHistory || _pendingSnapshot == null) return;
 
@@ -117,6 +117,7 @@ public partial class BlockEditor
                     blk.EnsureSpans();
                     existing.SetSpans(blk.Spans);
                     existing.Type = blk.Type;
+                    existing.ApplyPayloadFromHistorySnapshot(blk);
                     existing.Meta = new Dictionary<string, object>(blk.Meta ?? new Dictionary<string, object>());
                     existing.Order = blk.Order;
                     newList.Add(existing);
@@ -172,6 +173,7 @@ public partial class BlockEditor
 
             _focusedBlockIndex = -1;
             UpdateListNumbers();
+            RefreshPageBlockTitles();
 
             ApplyCaretFocus(caret);
             ReconcileReleasedStoredImagePathsWithDocument();

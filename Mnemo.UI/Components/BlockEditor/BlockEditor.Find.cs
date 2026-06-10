@@ -447,7 +447,7 @@ public partial class BlockEditor
         }
     }
 
-    private void RefreshFindMatchesAndHighlights()
+    internal void RefreshFindMatchesAndHighlights()
     {
         var perf = EditorPerfDiagnostics.Resolve();
         var perfStart = perf is { IsEnabled: true } ? Stopwatch.GetTimestamp() : 0;

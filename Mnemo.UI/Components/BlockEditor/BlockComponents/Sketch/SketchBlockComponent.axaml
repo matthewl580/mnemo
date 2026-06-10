@@ -65,12 +65,6 @@
                 <Grid RowDefinitions="Auto,8,*">
                     <!-- Header row: label + toolbar overlay (toolbar never affects layout height) -->
                     <Grid>
-                        <TextBlock
-                            FontSize="12"
-                            FontWeight="SemiBold"
-                            VerticalAlignment="Center"
-                            Foreground="{DynamicResource TextSecondaryBrush}"
-                            Text="Sketch diagram" />
                         <!-- Toolbar floats right — Opacity-only toggle so row height never changes -->
                         <StackPanel
                             x:Name="Toolbar"
