@@ -527,6 +527,47 @@ public partial class BlockEditor
         return local.HasValue && editable.IsPointerHitInsideBlock(local.Value);
     }
 
+    /// <summary>
+    /// Returns true when a point (in editor coordinates) that was already confirmed to be outside all
+    /// block content surfaces should trigger "insert block below". This covers two cases:
+    /// <list type="bullet">
+    ///   <item>The explicit <c>BelowBlocksArea</c> hit strip below the item repeater.</item>
+    ///   <item>The dead zone inside the last block's inflated row but below its visual content — common
+    ///     for Image and Sketch blocks whose row height is larger than their rendered content.</item>
+    /// </list>
+    /// Callers must only invoke this after confirming <c>_boxSelectArmed</c> (i.e. the click was not
+    /// inside any block's content surface), so the second case cannot produce false positives.
+    /// </summary>
+    private bool IsClickEffectivelyBelowBlocks(Point clickPoint)
+    {
+        // Primary: the dedicated hit strip placed in grid row 1, below the ItemsRepeater.
+        var belowArea = this.FindControl<Border>("BelowBlocksArea");
+        if (belowArea != null)
+        {
+            var topLeft = belowArea.TranslatePoint(new Point(0, 0), this);
+            if (topLeft.HasValue)
+            {
+                var rect = new Rect(topLeft.Value.X, topLeft.Value.Y, belowArea.Bounds.Width, belowArea.Bounds.Height);
+                if (rect.Contains(clickPoint))
+                    return true;
+            }
+        }
+
+        // Secondary: dead zone inside the last top-level block's row (e.g. Image/Sketch with min-height
+        // padding below the visual content, or a TwoColumn whose SplitBlockRowView row has trailing space).
+        // _boxSelectArmed already guarantees the click is outside all block content surfaces, so
+        // containment within the row container rect means it is in that dead zone.
+        // We use TryGetElement on the ItemsRepeater rather than GetEditableBlockForViewModel because
+        // TwoColumnBlockViewModel is never registered in _realizedBlocksByVm (only leaf VMs are).
+        if (Blocks.Count == 0 || BlocksItemsControl == null) return false;
+        var lastRowContainer = BlocksItemsControl.TryGetElement(BlockRows.Count - 1) as Control;
+        if (lastRowContainer == null) return false;
+        var lastTopLeft = lastRowContainer.TranslatePoint(new Point(0, 0), this);
+        if (!lastTopLeft.HasValue) return false;
+        var lastRect = new Rect(lastTopLeft.Value, lastRowContainer.Bounds.Size);
+        return lastRect.Contains(clickPoint);
+    }
+
     private static bool IsSplitColumnBottomTapBorder(Visual? source)
     {
         if (source == null) return false;
@@ -784,29 +825,23 @@ public partial class BlockEditor
         }
         else if (wasBoxArmed)
         {
-            // Plain click on empty space: if below blocks, add new block and focus it
-            var belowArea = this.FindControl<Border>("BelowBlocksArea");
-            if (belowArea != null)
+            // Plain click on empty space: if at or below the last block, add a new text block and focus it.
+            // _boxSelectArmed guarantees the click was outside all block content surfaces, so any point
+            // that falls within the last block's row bounds is the dead zone below its visual content
+            // (common for Image/Sketch with inflated row heights). We treat that the same as the explicit
+            // BelowBlocksArea strip.
+            if (IsClickEffectivelyBelowBlocks(_boxSelectStart))
             {
-                var topLeft = belowArea.TranslatePoint(new Point(0, 0), this);
-                if (topLeft.HasValue)
+                var lastIsEmpty = IsLastBlockEmptyForBelowBlocksAreaClick(Blocks);
+                if (!lastIsEmpty)
                 {
-                    var rect = new Rect(topLeft.Value.X, topLeft.Value.Y, belowArea.Bounds.Width, belowArea.Bounds.Height);
-                    if (rect.Contains(_boxSelectStart))
+                    AddBlock(BlockType.Text, Blocks.Count);
+                    if (Blocks.Count > 0)
                     {
-                        // Don't add a new block if the block above (last block) is empty
-                        var lastIsEmpty = IsLastBlockEmptyForBelowBlocksAreaClick(Blocks);
-                        if (!lastIsEmpty)
-                        {
-                            AddBlock(BlockType.Text, Blocks.Count);
-                            if (Blocks.Count > 0)
-                            {
-                                var newBlock = Blocks[Blocks.Count - 1];
-                                Avalonia.Threading.Dispatcher.UIThread.Post(
-                                    () => newBlock.IsFocused = true,
-                                    Avalonia.Threading.DispatcherPriority.Render);
-                            }
-                        }
+                        var newBlock = Blocks[Blocks.Count - 1];
+                        Avalonia.Threading.Dispatcher.UIThread.Post(
+                            () => newBlock.IsFocused = true,
+                            Avalonia.Threading.DispatcherPriority.Render);
                     }
                 }
             }

@@ -29,19 +29,51 @@ public partial class BlockEditor
 
     /// <summary>
     /// Last-block guard for clicking the area below all blocks: avoid stacking duplicate empty text blocks.
+    /// Structural/non-text block types are never considered "empty" for this purpose because they don't
+    /// hold flow text – the guard only prevents duplicate empty text blocks at the bottom of the document.
     /// </summary>
     private static bool IsLastBlockEmptyForBelowBlocksAreaClick(IReadOnlyList<BlockViewModel> blocks)
     {
         if (blocks.Count == 0) return false;
-        var last = BlockHierarchy.EnumerateInDocumentOrder(blocks).LastOrDefault() ?? blocks[blocks.Count - 1];
-        if (last.Type == BlockType.Image)
+
+        // Check the top-level last block first. TwoColumnBlockViewModel is a structural container —
+        // EnumerateInDocumentOrder skips it and returns its column children instead, which would cause
+        // the empty-text check to incorrectly evaluate the last child (often an empty placeholder row).
+        var topLast = blocks[blocks.Count - 1];
+        if (IsStructuralBlockType(topLast.Type))
+            return false;
+
+        // For single-block rows, fall through to the per-type emptiness logic using document order
+        // so that nested leaf blocks (e.g. the last block inside a two-column's right column) are
+        // still reachable — but only when the top-level row is not itself structural.
+        var last = BlockHierarchy.EnumerateInDocumentOrder(blocks).LastOrDefault() ?? topLast;
+
+        switch (last.Type)
         {
-            if (!string.IsNullOrWhiteSpace(last.ImagePath)) return false;
-            if (!string.IsNullOrWhiteSpace(last.Content)) return false;
+            case BlockType.Image:
+                // An image block with a path or caption is not empty.
+                if (!string.IsNullOrWhiteSpace(last.ImagePath)) return false;
+                if (!string.IsNullOrWhiteSpace(last.Content)) return false;
+                return true;
+
+            // These types carry identity in payload/ReferenceNoteId, not in Content.
+            case BlockType.Page:
+            case BlockType.Sketch:
+            case BlockType.Divider:
+                return false;
         }
 
         return BlockEditorContentPolicy.IsVisuallyEmpty(last.Content);
     }
+
+    /// <summary>Returns true for block types that are structural containers or inherently non-empty
+    /// by design, meaning they should never block new-block insertion regardless of their content state.</summary>
+    private static bool IsStructuralBlockType(BlockType type) => type is
+        BlockType.TwoColumn or
+        BlockType.ColumnGroup or
+        BlockType.Page or
+        BlockType.Sketch or
+        BlockType.Divider;
 
     private static string GetBlockMetaString(BlockViewModel vm, string key)
     {
