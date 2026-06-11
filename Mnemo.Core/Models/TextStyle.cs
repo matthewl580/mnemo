@@ -9,6 +9,7 @@ public readonly record struct TextStyle(
     bool Code = false,
     bool Highlight = false,
     string? BackgroundColor = null,
+    string? ForegroundColor = null,
     string? LinkUrl = null,
     bool SuppressAutoLink = false,
     bool Subscript = false,
@@ -25,6 +26,7 @@ public readonly record struct TextStyle(
         Formatting.InlineFormatKind.Code => this with { Code = !Code },
         Formatting.InlineFormatKind.Highlight => this with { Highlight = !Highlight },
         Formatting.InlineFormatKind.BackgroundColor => this with { BackgroundColor = BackgroundColor == color ? null : color },
+        Formatting.InlineFormatKind.ForegroundColor => this with { ForegroundColor = ForegroundColor == color ? null : color },
         Formatting.InlineFormatKind.Link => LinkUrl != null
             ? this with { LinkUrl = null, SuppressAutoLink = true }
             : this,
@@ -43,6 +45,7 @@ public readonly record struct TextStyle(
         Formatting.InlineFormatKind.Code => this with { Code = true },
         Formatting.InlineFormatKind.Highlight => this with { Highlight = true },
         Formatting.InlineFormatKind.BackgroundColor => this with { BackgroundColor = color },
+        Formatting.InlineFormatKind.ForegroundColor => this with { ForegroundColor = color },
         Formatting.InlineFormatKind.Link => this with { LinkUrl = color, SuppressAutoLink = false },
         Formatting.InlineFormatKind.Subscript => this with { Subscript = true, Superscript = false },
         Formatting.InlineFormatKind.Superscript => this with { Superscript = true, Subscript = false },
@@ -59,6 +62,7 @@ public readonly record struct TextStyle(
         Formatting.InlineFormatKind.Code => this with { Code = false },
         Formatting.InlineFormatKind.Highlight => this with { Highlight = false },
         Formatting.InlineFormatKind.BackgroundColor => this with { BackgroundColor = null },
+        Formatting.InlineFormatKind.ForegroundColor => this with { ForegroundColor = null },
         Formatting.InlineFormatKind.Link => LinkUrl != null
             ? this with { LinkUrl = null, SuppressAutoLink = true }
             : this,
@@ -77,6 +81,7 @@ public readonly record struct TextStyle(
         Formatting.InlineFormatKind.Code => Code,
         Formatting.InlineFormatKind.Highlight => Highlight,
         Formatting.InlineFormatKind.BackgroundColor => BackgroundColor != null,
+        Formatting.InlineFormatKind.ForegroundColor => ForegroundColor != null,
         Formatting.InlineFormatKind.Link => LinkUrl != null,
         Formatting.InlineFormatKind.Subscript => Subscript,
         Formatting.InlineFormatKind.Superscript => Superscript,

@@ -470,6 +470,19 @@
     <Color x:Key="SliderContainerBackgroundDisabled">Transparent</Color>
 
     <!-- Color Swatches -->
+    <!-- Inline text color swatches (foreground) -->
+    <Color x:Key="TextColorSwatch1">#CFCCCB</Color>
+    <Color x:Key="TextColorSwatch2">#C4B5FD</Color>
+    <Color x:Key="TextColorSwatch3">#93C5FD</Color>
+    <Color x:Key="TextColorSwatch4">#D8B4FE</Color>
+    <Color x:Key="TextColorSwatch5">#FDA4AF</Color>
+    <Color x:Key="TextColorSwatch6">#86EFAC</Color>
+    <Color x:Key="TextColorSwatch7">#FDE047</Color>
+    <Color x:Key="TextColorSwatch8">#FDBA74</Color>
+    <Color x:Key="TextColorSwatch9">#7DD3FC</Color>
+    <Color x:Key="TextColorSwatch10">#5EEAD4</Color>
+
+    <!-- Inline background color swatches -->
     <Color x:Key="ColorSwatch1">#3A3A3D</Color>
     <Color x:Key="ColorSwatch2">#40304D</Color>
     <Color x:Key="ColorSwatch3">#293645</Color>

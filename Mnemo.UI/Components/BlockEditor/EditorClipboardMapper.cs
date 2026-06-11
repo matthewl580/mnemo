@@ -116,6 +116,7 @@ public static class EditorClipboardMapper
             Code = eq.Style.Code,
             Highlight = eq.Style.Highlight,
             BackgroundColor = eq.Style.BackgroundColor,
+            ForegroundColor = eq.Style.ForegroundColor,
             Subscript = eq.Style.Subscript,
             Superscript = eq.Style.Superscript,
             EquationLatex = eq.Latex
@@ -130,6 +131,7 @@ public static class EditorClipboardMapper
             Code = f.Style.Code,
             Highlight = f.Style.Highlight,
             BackgroundColor = f.Style.BackgroundColor,
+            ForegroundColor = f.Style.ForegroundColor,
             Subscript = f.Style.Subscript,
             Superscript = f.Style.Superscript,
             FractionNumerator = f.Numerator,
@@ -145,6 +147,7 @@ public static class EditorClipboardMapper
             Code = t.Style.Code,
             Highlight = t.Style.Highlight,
             BackgroundColor = t.Style.BackgroundColor,
+            ForegroundColor = t.Style.ForegroundColor,
             Subscript = t.Style.Subscript,
             Superscript = t.Style.Superscript,
             EquationLatex = null
@@ -268,6 +271,7 @@ public static class EditorClipboardMapper
             Code: dto.Code,
             Highlight: dto.Highlight,
             BackgroundColor: dto.BackgroundColor,
+            ForegroundColor: dto.ForegroundColor,
             Subscript: dto.Subscript,
             Superscript: dto.Superscript);
         if (!string.IsNullOrEmpty(dto.EquationLatex))

@@ -13,9 +13,10 @@
         CornerRadius="10"
         Padding="4,3">
         <StackPanel Orientation="Horizontal" Spacing="1">
-            <!-- Assist (placeholder) -->
+            <!-- Assist (placeholder — hidden until implemented) -->
             <Button
                 x:Name="AssistButton"
+                IsVisible="False"
                 Classes="FormattingToolbarButton FormattingToolbarAssist"
                 ToolTip.Tip="Assist"
                 Click="OnAssistClick">
@@ -33,22 +34,37 @@
                 </StackPanel>
             </Button>
 
-            <!-- Separator -->
-            <Border Width="1" Height="20" Margin="3,0" Background="{DynamicResource ButtonBorderBrush}" Opacity="0.5" />
+            <!-- Separator (hidden with Assist) -->
+            <Border
+                IsVisible="False"
+                Width="1" Height="20" Margin="3,0"
+                Background="{DynamicResource ButtonBorderBrush}"
+                Opacity="0.5" />
 
             <!-- Color dropdown -->
             <Button
                 x:Name="ColorButton"
                 Classes="FormattingToolbarButton"
-                ToolTip.Tip="Text Color"
+                ToolTip.Tip="Color"
                 Click="OnColorClick">
                 <StackPanel Orientation="Horizontal" Spacing="5">
-                    <Ellipse
-                        x:Name="ColorSwatch"
-                        Width="14" Height="14"
-                        Fill="#7C5CFC"
-                        Stroke="{DynamicResource ButtonBorderBrush}"
-                        StrokeThickness="1" />
+                    <Border
+                        x:Name="ColorPreviewBackground"
+                        Width="18"
+                        Height="18"
+                        CornerRadius="3"
+                        Background="{DynamicResource WorkspaceBackgroundBrush}"
+                        BorderBrush="{DynamicResource ButtonBorderBrush}"
+                        BorderThickness="1">
+                        <TextBlock
+                            x:Name="ColorPreviewForeground"
+                            Text="A"
+                            FontSize="11"
+                            FontWeight="SemiBold"
+                            HorizontalAlignment="Center"
+                            VerticalAlignment="Center"
+                            Foreground="{DynamicResource TextPrimaryBrush}" />
+                    </Border>
                     <TextBlock
                         x:Name="ColorLabel"
                         Text="Color"

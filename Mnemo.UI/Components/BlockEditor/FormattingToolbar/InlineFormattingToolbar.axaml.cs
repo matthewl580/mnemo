@@ -1,6 +1,5 @@
 using Avalonia;
 using Avalonia.Controls;
-using Avalonia.Controls.Shapes;
 using Avalonia.Interactivity;
 using Avalonia.Markup.Xaml;
 using Avalonia.Media;
@@ -14,15 +13,21 @@ namespace Mnemo.UI.Components.BlockEditor.FormattingToolbar;
 
 public partial class InlineFormattingToolbar : UserControl
 {
-    private Ellipse? _colorSwatch;
+    private Border? _colorPreviewBackground;
+    private TextBlock? _colorPreviewForeground;
     private string? _colorOverlayId;
     private string? _hostingToolbarOverlayId;
     private IOverlayService? _overlayService;
     private ColorSwatchPopup? _currentColorPopup;
     private DateTime _lastInteractionUtc = DateTime.MinValue;
+    private string? _currentForegroundColor;
+    private string? _currentBackgroundColor;
 
     /// <summary>Raised when a formatting action (Bold, Italic, etc.) is requested.</summary>
     public event Action<InlineFormatKind>? FormatRequested;
+
+    /// <summary>Raised when a text (foreground) color is selected from the color dropdown.</summary>
+    public event Action<string>? ForegroundColorRequested;
 
     /// <summary>Raised when a background color is selected from the color dropdown.</summary>
     public event Action<string>? BackgroundColorRequested;
@@ -40,7 +45,10 @@ public partial class InlineFormattingToolbar : UserControl
     }
 
     /// <summary>Updates toggle state of format buttons from the current selection.</summary>
-    public void UpdateFormatState(bool bold, bool italic, bool underline, bool strikethrough, bool highlight, string? backgroundColor, bool hasLink, bool subscript = false, bool superscript = false)
+    public void UpdateFormatState(
+        bool bold, bool italic, bool underline, bool strikethrough, bool highlight,
+        string? foregroundColor, string? backgroundColor, bool hasLink,
+        bool subscript = false, bool superscript = false)
     {
         SetButtonActive("BoldButton", bold);
         SetButtonActive("ItalicButton", italic);
@@ -50,24 +58,29 @@ public partial class InlineFormattingToolbar : UserControl
         SetButtonActive("HighlightButton", highlight);
         SetButtonActive("SubscriptButton", subscript);
         SetButtonActive("SuperscriptButton", superscript);
-        if (this.FindControl<Ellipse>("ColorSwatch") is { } swatch && backgroundColor != null)
-        {
-            Color newColor = Colors.Transparent;
-            if (Color.TryParse(backgroundColor, out var c))
-            {
-                newColor = c;
-            }
-            else if (backgroundColor.StartsWith("swatch", StringComparison.OrdinalIgnoreCase) && Application.Current != null)
-            {
-                var key = "ColorSwatch" + backgroundColor.Substring(6);
-                if (Application.Current.TryFindResource(key, out var res) && res is Color rc)
-                    newColor = rc;
-            }
+        _currentForegroundColor = foregroundColor;
+        _currentBackgroundColor = backgroundColor;
+        UpdateColorPreview(foregroundColor, backgroundColor);
+    }
 
-            if (newColor != Colors.Transparent && !(swatch.Fill is SolidColorBrush solidBrush && solidBrush.Color == newColor))
-            {
-                swatch.Fill = new SolidColorBrush(newColor);
-            }
+    private void UpdateColorPreview(string? foregroundColor, string? backgroundColor)
+    {
+        if (_colorPreviewForeground != null)
+        {
+            var fg = FormattingColorResolver.ToForegroundBrush(foregroundColor)
+                     ?? (Application.Current?.TryFindResource("TextPrimaryBrush", out var fgRes) == true && fgRes is IBrush fgBrush
+                         ? fgBrush
+                         : Brushes.Black);
+            _colorPreviewForeground.Foreground = fg;
+        }
+
+        if (_colorPreviewBackground != null)
+        {
+            var bg = FormattingColorResolver.ToBackgroundBrush(backgroundColor)
+                     ?? (Application.Current?.TryFindResource("WorkspaceBackgroundBrush", out var bgRes) == true && bgRes is IBrush bgBrush
+                         ? bgBrush
+                         : Brushes.Transparent);
+            _colorPreviewBackground.Background = bg;
         }
     }
 
@@ -124,7 +137,8 @@ public partial class InlineFormattingToolbar : UserControl
 
     private void OnLoaded(object? sender, RoutedEventArgs e)
     {
-        _colorSwatch = this.FindControl<Ellipse>("ColorSwatch");
+        _colorPreviewBackground = this.FindControl<Border>("ColorPreviewBackground");
+        _colorPreviewForeground = this.FindControl<TextBlock>("ColorPreviewForeground");
         _overlayService = (Application.Current as App)?.Services?.GetService(typeof(IOverlayService)) as IOverlayService;
 
         var loc = (Application.Current as App)?.Services?.GetService(typeof(ILocalizationService)) as ILocalizationService;
@@ -135,6 +149,9 @@ public partial class InlineFormattingToolbar : UserControl
 
         var colorLabel = this.FindControl<TextBlock>("ColorLabel");
         if (colorLabel != null) colorLabel.Text = T("Color");
+
+        if (this.FindControl<Button>("ColorButton") is { } colorBtn)
+            ToolTip.SetTip(colorBtn, T("Color"));
 
         if (this.FindControl<Button>("UnlinkButton") is { } linkBtn)
             ToolTip.SetTip(linkBtn, T("LinkTooltip"));
@@ -155,13 +172,14 @@ public partial class InlineFormattingToolbar : UserControl
         CloseColorPopup();
 
         var popup = new ColorSwatchPopup();
-        popup.ColorSelected += OnSwatchColorSelected;
+        popup.TextColorSelected += OnTextColorSelected;
+        popup.BackgroundColorSelected += OnBackgroundColorSelected;
+        popup.SetInitialSelection(_currentForegroundColor, _currentBackgroundColor);
         _currentColorPopup = popup;
 
         var colorButton = this.FindControl<Button>("ColorButton");
         var options = new OverlayOptions
         {
-            // Full-window backdrop so outside taps dismiss this popup (BackdropPressed); opacity 0 keeps UI undimmed.
             ShowBackdrop = true,
             CloseOnOutsideClick = true,
             BackdropOpacity = 0,
@@ -176,28 +194,30 @@ public partial class InlineFormattingToolbar : UserControl
         _colorOverlayId = _overlayService.CreateOverlay(popup, options, "ColorSwatchPopup");
     }
 
-    private void OnSwatchColorSelected(string colorOrSwatch)
+    private void OnTextColorSelected(string colorOrSwatch)
     {
         _lastInteractionUtc = DateTime.UtcNow;
         CloseColorPopup();
-        if (_colorSwatch != null)
+        if (_colorPreviewForeground != null)
         {
-            Color newColor = Colors.Transparent;
-            if (Color.TryParse(colorOrSwatch, out var c))
-            {
-                newColor = c;
-            }
-            else if (colorOrSwatch.StartsWith("swatch", StringComparison.OrdinalIgnoreCase) && Application.Current != null)
-            {
-                var key = "ColorSwatch" + colorOrSwatch.Substring(6);
-                if (Application.Current.TryFindResource(key, out var res) && res is Color rc)
-                    newColor = rc;
-            }
+            _colorPreviewForeground.Foreground = FormattingColorResolver.ToForegroundBrush(colorOrSwatch)
+                ?? (Application.Current?.TryFindResource("TextPrimaryBrush", out var fgRes) == true && fgRes is IBrush fgBrush
+                    ? fgBrush
+                    : Brushes.Black);
+        }
+        ForegroundColorRequested?.Invoke(colorOrSwatch);
+    }
 
-            if (newColor != Colors.Transparent)
-            {
-                _colorSwatch.Fill = new SolidColorBrush(newColor);
-            }
+    private void OnBackgroundColorSelected(string colorOrSwatch)
+    {
+        _lastInteractionUtc = DateTime.UtcNow;
+        CloseColorPopup();
+        if (_colorPreviewBackground != null)
+        {
+            _colorPreviewBackground.Background = FormattingColorResolver.ToBackgroundBrush(colorOrSwatch)
+                ?? (Application.Current?.TryFindResource("WorkspaceBackgroundBrush", out var bgRes) == true && bgRes is IBrush bgBrush
+                    ? bgBrush
+                    : Brushes.Transparent);
         }
         BackgroundColorRequested?.Invoke(colorOrSwatch);
     }
@@ -206,7 +226,8 @@ public partial class InlineFormattingToolbar : UserControl
     {
         if (_currentColorPopup != null)
         {
-            _currentColorPopup.ColorSelected -= OnSwatchColorSelected;
+            _currentColorPopup.TextColorSelected -= OnTextColorSelected;
+            _currentColorPopup.BackgroundColorSelected -= OnBackgroundColorSelected;
             _currentColorPopup = null;
         }
 

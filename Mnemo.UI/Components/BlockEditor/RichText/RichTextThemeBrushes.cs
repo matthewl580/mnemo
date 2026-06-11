@@ -81,16 +81,35 @@ internal static class RichTextThemeBrushes
     {
         if (style.Highlight)
             return GetInlineHighlightBrush();
-        if (string.IsNullOrEmpty(style.BackgroundColor))
+        return ResolveColorTokenBrush(style.BackgroundColor, "ColorSwatch");
+    }
+
+    internal static IBrush? ResolveInlineForegroundBrush(TextStyle style)
+        => ResolveColorTokenBrush(style.ForegroundColor, "TextColorSwatch");
+
+    internal static IBrush ResolveRunForegroundBrush(TextStyle style, IBrush defaultForeground)
+    {
+        if (ResolveInlineForegroundBrush(style) is { } custom)
+            return custom;
+        if (!string.IsNullOrEmpty(style.LinkUrl)
+            && Application.Current?.TryFindResource("LinksBrush", out var linkRes) == true
+            && linkRes is IBrush linkBrush)
+            return linkBrush;
+        return defaultForeground;
+    }
+
+    private static IBrush? ResolveColorTokenBrush(string? colorToken, string swatchResourcePrefix)
+    {
+        if (string.IsNullOrEmpty(colorToken))
             return null;
 
-        if (Color.TryParse(style.BackgroundColor, out var color))
+        if (Color.TryParse(colorToken, out var color))
             return new SolidColorBrush(color);
 
-        if (style.BackgroundColor.StartsWith("swatch", StringComparison.OrdinalIgnoreCase)
+        if (colorToken.StartsWith("swatch", StringComparison.OrdinalIgnoreCase)
             && Application.Current != null)
         {
-            var key = "ColorSwatch" + style.BackgroundColor.Substring(6);
+            var key = swatchResourcePrefix + colorToken.Substring(6);
             if (Application.Current.TryFindResource(key, out var swatch))
             {
                 if (swatch is Color swatchColor)

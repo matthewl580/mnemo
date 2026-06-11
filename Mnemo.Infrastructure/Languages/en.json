@@ -464,7 +464,11 @@
     "EquationRenderError": "Could not render equation",
     "EquationTooltip": "Equation (Ctrl+Shift+E)",
     "NoSuggestions": "No suggestions",
-    "AddWordToDictionary": "Add word to dictionary"
+    "AddWordToDictionary": "Add word to dictionary",
+    "TextColor": "TEXT COLOR",
+    "BackgroundColor": "BACKGROUND COLOR",
+    "ColorModeHighlight": "Highlight",
+    "ColorPalette": "PALETTE"
   },
   "Mindmap": {
     "Title": "Mindmaps",

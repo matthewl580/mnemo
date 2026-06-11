@@ -138,7 +138,7 @@ internal sealed class FormattingToolbarCoordinator
 
         _currentFormattingToolbar.UpdateFormatState(
             state.bold, state.italic, state.underline, state.strikethrough,
-            state.highlight, state.backgroundColor, state.hasLink,
+            state.highlight, state.foregroundColor, state.backgroundColor, state.hasLink,
             subActive, supActive);
         var heading = _host._viewModel.Type is BlockType.Heading1 or BlockType.Heading2 or BlockType.Heading3 or BlockType.Heading4;
         _currentFormattingToolbar.SetBoldButtonEnabled(!heading);
@@ -163,6 +163,7 @@ internal sealed class FormattingToolbarCoordinator
         if (disposeToolbar && _currentFormattingToolbar != null)
         {
             _currentFormattingToolbar.FormatRequested -= OnFormatRequested;
+            _currentFormattingToolbar.ForegroundColorRequested -= OnForegroundColorRequested;
             _currentFormattingToolbar.BackgroundColorRequested -= OnBackgroundColorRequested;
             _currentFormattingToolbar.EquationRequested -= OnEquationRequested;
             _currentFormattingToolbar = null;
@@ -335,6 +336,7 @@ internal sealed class FormattingToolbarCoordinator
         {
             toolbar = new InlineFormattingToolbar();
             toolbar.FormatRequested += OnFormatRequested;
+            toolbar.ForegroundColorRequested += OnForegroundColorRequested;
             toolbar.BackgroundColorRequested += OnBackgroundColorRequested;
             toolbar.EquationRequested += OnEquationRequested;
             _currentFormattingToolbar = toolbar;
@@ -407,6 +409,9 @@ internal sealed class FormattingToolbarCoordinator
             color = $"#{c.R:X2}{c.G:X2}{c.B:X2}";
         _host._formatHandler?.Apply(kind, color);
     }
+
+    private void OnForegroundColorRequested(string hex)
+        => _host._formatHandler?.Apply(InlineFormatKind.ForegroundColor, hex);
 
     private void OnBackgroundColorRequested(string hex)
         => _host._formatHandler?.Apply(InlineFormatKind.BackgroundColor, hex);
@@ -602,13 +607,15 @@ internal sealed class FormattingToolbarCoordinator
     }
 
     internal static (bool bold, bool italic, bool underline, bool strikethrough, bool highlight,
-        string? backgroundColor, bool hasLink, bool subscript, bool superscript)
+        string? foregroundColor, string? backgroundColor, bool hasLink, bool subscript, bool superscript)
         GetFormatStateForRange(IReadOnlyList<InlineSpan> runs, int start, int end)
     {
-        if (runs.Count == 0 || start >= end) return (false, false, false, false, false, null, false, false, false);
+        if (runs.Count == 0 || start >= end) return (false, false, false, false, false, null, null, false, false, false);
         bool bold = true, italic = true, underline = true, strikethrough = true, highlight = true;
         bool subscript = true, superscript = true;
+        string? foregroundColor = null;
         string? backgroundColor = null;
+        bool foregroundMixed = false;
         bool backgroundMixed = false;
         bool anyOverlap = false;
         bool hasLink = false;
@@ -626,6 +633,11 @@ internal sealed class FormattingToolbarCoordinator
             if (!run.Style.Highlight) highlight = false;
             if (!run.Style.Subscript) subscript = false;
             if (!run.Style.Superscript) superscript = false;
+            if (!foregroundMixed && run.Style.ForegroundColor != null)
+            {
+                if (foregroundColor == null) foregroundColor = run.Style.ForegroundColor;
+                else if (foregroundColor != run.Style.ForegroundColor) { foregroundColor = null; foregroundMixed = true; }
+            }
             if (!backgroundMixed && run.Style.BackgroundColor != null)
             {
                 if (backgroundColor == null) backgroundColor = run.Style.BackgroundColor;
@@ -634,8 +646,8 @@ internal sealed class FormattingToolbarCoordinator
             if (run.Style.LinkUrl != null) hasLink = true;
             pos = runEnd;
         }
-        if (!anyOverlap) return (false, false, false, false, false, null, false, false, false);
-        return (bold, italic, underline, strikethrough, highlight, backgroundColor, hasLink, subscript, superscript);
+        if (!anyOverlap) return (false, false, false, false, false, null, null, false, false, false);
+        return (bold, italic, underline, strikethrough, highlight, foregroundColor, backgroundColor, hasLink, subscript, superscript);
     }
 
     private static string? GetLinkUrlForRange(IReadOnlyList<InlineSpan> runs, int start, int end)

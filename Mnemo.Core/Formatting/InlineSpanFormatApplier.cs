@@ -38,7 +38,7 @@ public static class InlineSpanFormatApplier
                         ? GetStyle(span).WithClear(InlineFormatKind.Link)
                         : GetStyle(span).WithSet(InlineFormatKind.Link, color);
                 }
-                else if (kind == InlineFormatKind.BackgroundColor)
+                else if (kind is InlineFormatKind.BackgroundColor or InlineFormatKind.ForegroundColor)
                     newStyle = allHaveFormat
                         ? GetStyle(span).WithClear(kind)
                         : GetStyle(span).WithSet(kind, color);
@@ -378,6 +378,11 @@ public static class InlineSpanFormatApplier
                 if (kind == InlineFormatKind.BackgroundColor)
                 {
                     if (st.BackgroundColor != color)
+                        return false;
+                }
+                else if (kind == InlineFormatKind.ForegroundColor)
+                {
+                    if (st.ForegroundColor != color)
                         return false;
                 }
                 else if (!st.Has(kind))

@@ -388,9 +388,11 @@ internal static class NotePdfDocumentComposer
 
         if (style.Highlight)
             descriptor.BackgroundColor(Colors.Yellow.Lighten3);
-        if (TryResolveSpanBackground(options, style.BackgroundColor, out var background))
+        if (TryResolveSpanColor(options.BackgroundSwatchHexByName, style.BackgroundColor, out var background))
             descriptor.BackgroundColor(background);
-        if (!string.IsNullOrWhiteSpace(style.LinkUrl))
+        if (TryResolveSpanColor(options.ForegroundSwatchHexByName, style.ForegroundColor, out var foreground))
+            descriptor.FontColor(foreground);
+        else if (!string.IsNullOrWhiteSpace(style.LinkUrl))
             descriptor.FontColor(Colors.Blue.Medium);
     }
 
@@ -545,7 +547,10 @@ internal static class NotePdfDocumentComposer
             RegexOptions.IgnoreCase);
     }
 
-    private static bool TryResolveSpanBackground(NotePdfExportOptions options, string? rawStylesheetColor, out Color color)
+    private static bool TryResolveSpanColor(
+        IReadOnlyDictionary<string, string>? swatchHexByName,
+        string? rawStylesheetColor,
+        out Color color)
     {
         color = Colors.Transparent;
         if (string.IsNullOrWhiteSpace(rawStylesheetColor))
@@ -554,7 +559,7 @@ internal static class NotePdfDocumentComposer
         var token = rawStylesheetColor.Trim();
 
         if (token.StartsWith("swatch", StringComparison.OrdinalIgnoreCase)
-            && options.BackgroundSwatchHexByName is { } swatches
+            && swatchHexByName is { } swatches
             && swatches.TryGetValue(token, out var mappedHex)
             && !string.IsNullOrWhiteSpace(mappedHex))
         {

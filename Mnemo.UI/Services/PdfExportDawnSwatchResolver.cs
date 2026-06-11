@@ -7,15 +7,16 @@ using Avalonia.Platform;
 namespace Mnemo.UI.Services;
 
 /// <summary>
-/// PDF pages are always light; inline <c>swatch1</c>…<c>swatch10</c> backgrounds use the Dawn palette
+/// PDF pages are always light; inline <c>swatch1</c>…<c>swatch10</c> tokens use the Dawn palette
 /// so Dusk/Noon editor themes do not paint dark swatches on white paper.
 /// </summary>
 internal static class PdfExportDawnSwatchResolver
 {
-    private static IReadOnlyDictionary<string, string>? _cache;
+    private static IReadOnlyDictionary<string, string>? _backgroundCache;
+    private static IReadOnlyDictionary<string, string>? _foregroundCache;
 
-    /// <summary>Fallback if <c>Colors.axaml</c> cannot be read; must stay in sync with Dawn <c>ColorSwatch1</c>–<c>10</c>.</summary>
-    private static readonly IReadOnlyDictionary<string, string> Fallback = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+    /// <summary>Fallback if <c>Colors.axaml</c> cannot be read; must stay in sync with Dawn background swatches.</summary>
+    private static readonly IReadOnlyDictionary<string, string> BackgroundFallback = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
     {
         ["swatch1"] = "#F5F5F5",
         ["swatch2"] = "#E6E6FA",
@@ -29,11 +30,31 @@ internal static class PdfExportDawnSwatchResolver
         ["swatch10"] = "#D1EDDA"
     };
 
-    public static IReadOnlyDictionary<string, string> GetBackgroundSwatchHexByName()
+    /// <summary>Fallback if <c>Colors.axaml</c> cannot be read; must stay in sync with Dawn text swatches.</summary>
+    private static readonly IReadOnlyDictionary<string, string> ForegroundFallback = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
     {
-        if (_cache != null)
-            return _cache;
+        ["swatch1"] = "#57534E",
+        ["swatch2"] = "#7C3AED",
+        ["swatch3"] = "#2563EB",
+        ["swatch4"] = "#9333EA",
+        ["swatch5"] = "#DC2626",
+        ["swatch6"] = "#16A34A",
+        ["swatch7"] = "#CA8A04",
+        ["swatch8"] = "#EA580C",
+        ["swatch9"] = "#0284C7",
+        ["swatch10"] = "#0D9488"
+    };
 
+    public static IReadOnlyDictionary<string, string> GetBackgroundSwatchHexByName()
+        => _backgroundCache ??= LoadSwatches("ColorSwatch", BackgroundFallback);
+
+    public static IReadOnlyDictionary<string, string> GetForegroundSwatchHexByName()
+        => _foregroundCache ??= LoadSwatches("TextColorSwatch", ForegroundFallback);
+
+    private static IReadOnlyDictionary<string, string> LoadSwatches(
+        string resourcePrefix,
+        IReadOnlyDictionary<string, string> fallback)
+    {
         var map = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         try
         {
@@ -41,10 +62,8 @@ internal static class PdfExportDawnSwatchResolver
             using var stream = AssetLoader.Open(uri);
             using var reader = new StreamReader(stream);
             var xml = reader.ReadToEnd();
-            foreach (Match m in Regex.Matches(
-                         xml,
-                         """<Color x:Key="ColorSwatch(\d{1,2})">#([0-9A-Fa-f]{6})</Color>""",
-                         RegexOptions.IgnoreCase))
+            var pattern = "<Color x:Key=\"" + resourcePrefix + "(\\d{1,2})\">#([0-9A-Fa-f]{6})</Color>";
+            foreach (Match m in Regex.Matches(xml, pattern, RegexOptions.IgnoreCase))
             {
                 map["swatch" + m.Groups[1].Value] = "#" + m.Groups[2].Value.ToUpperInvariant();
             }
@@ -54,7 +73,6 @@ internal static class PdfExportDawnSwatchResolver
             // ignored
         }
 
-        _cache = map.Count >= 10 ? map : new Dictionary<string, string>(Fallback, StringComparer.OrdinalIgnoreCase);
-        return _cache;
+        return map.Count >= 10 ? map : new Dictionary<string, string>(fallback, StringComparer.OrdinalIgnoreCase);
     }
 }

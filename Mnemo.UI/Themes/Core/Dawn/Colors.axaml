@@ -451,7 +451,19 @@
     <Color x:Key="MindmapModeSwitcherActiveForeground">#FFFFFF</Color>
     <Color x:Key="MindmapModeSwitcherInactiveForeground">#5C5B5A</Color>
 
-    <!-- Color Swatches -->
+    <!-- Inline text color swatches (foreground) -->
+    <Color x:Key="TextColorSwatch1">#57534E</Color>
+    <Color x:Key="TextColorSwatch2">#7C3AED</Color>
+    <Color x:Key="TextColorSwatch3">#2563EB</Color>
+    <Color x:Key="TextColorSwatch4">#9333EA</Color>
+    <Color x:Key="TextColorSwatch5">#DC2626</Color>
+    <Color x:Key="TextColorSwatch6">#16A34A</Color>
+    <Color x:Key="TextColorSwatch7">#CA8A04</Color>
+    <Color x:Key="TextColorSwatch8">#EA580C</Color>
+    <Color x:Key="TextColorSwatch9">#0284C7</Color>
+    <Color x:Key="TextColorSwatch10">#0D9488</Color>
+
+    <!-- Inline background color swatches -->
     <Color x:Key="ColorSwatch1">#F5F5F5</Color>
     <Color x:Key="ColorSwatch2">#E6E6FA</Color>
     <Color x:Key="ColorSwatch3">#D8DCEC</Color>

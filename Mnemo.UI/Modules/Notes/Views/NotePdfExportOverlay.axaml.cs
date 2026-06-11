@@ -160,7 +160,8 @@ public partial class NotePdfExportOverlay : UserControl
                 ? NotePdfPageNumberFormat.CurrentPage
                 : NotePdfPageNumberFormat.CurrentAndTotalPages,
             PreviewRasterDpi = 120,
-            BackgroundSwatchHexByName = PdfExportDawnSwatchResolver.GetBackgroundSwatchHexByName()
+            BackgroundSwatchHexByName = PdfExportDawnSwatchResolver.GetBackgroundSwatchHexByName(),
+            ForegroundSwatchHexByName = PdfExportDawnSwatchResolver.GetForegroundSwatchHexByName()
         };
     }
 

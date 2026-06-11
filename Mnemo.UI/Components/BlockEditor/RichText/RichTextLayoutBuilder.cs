@@ -81,11 +81,7 @@ internal static class RichTextLayoutBuilder
                         decorations.Add(new TextDecoration { Location = TextDecorationLocation.Strikethrough });
                 }
 
-                IBrush runForeground = defaultForeground;
-                if (!string.IsNullOrEmpty(style.LinkUrl)
-                    && Application.Current?.TryFindResource("LinksBrush", out var linkRes) == true
-                    && linkRes is IBrush linkBrush)
-                    runForeground = linkBrush;
+                IBrush runForeground = RichTextThemeBrushes.ResolveRunForegroundBrush(style, defaultForeground);
 
                 var background = RichTextThemeBrushes.ResolveInlineBackgroundBrush(style);
                 if (background != null) hasBackground = true;
@@ -173,11 +169,7 @@ internal static class RichTextLayoutBuilder
                         decorations.Add(new TextDecoration { Location = TextDecorationLocation.Strikethrough });
                 }
 
-                IBrush runForeground = defaultForeground;
-                if (!string.IsNullOrEmpty(style.LinkUrl)
-                    && Application.Current?.TryFindResource("LinksBrush", out var linkRes) == true
-                    && linkRes is IBrush linkBrush)
-                    runForeground = linkBrush;
+                IBrush runForeground = RichTextThemeBrushes.ResolveRunForegroundBrush(style, defaultForeground);
 
                 var background = RichTextThemeBrushes.ResolveInlineBackgroundBrush(style);
                 if (background != null) hasBackground = true;

@@ -11,6 +11,7 @@ public sealed class NoteClipboardRunDto
     public bool Code { get; set; }
     public bool Highlight { get; set; }
     public string? BackgroundColor { get; set; }
+    public string? ForegroundColor { get; set; }
     public bool Subscript { get; set; }
     public bool Superscript { get; set; }
     /// <summary>LaTeX source for inline equation runs (U+FFFC placeholder text).</summary>

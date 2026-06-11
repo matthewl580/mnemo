@@ -226,6 +226,8 @@ public sealed class BlockJsonConverter : JsonConverter<Block>
         writer.WriteBoolean("highlight", st.Highlight);
         if (st.BackgroundColor != null)
             writer.WriteString("backgroundColor", st.BackgroundColor);
+        if (st.ForegroundColor != null)
+            writer.WriteString("foregroundColor", st.ForegroundColor);
         if (st.LinkUrl != null)
             writer.WriteString("linkUrl", st.LinkUrl);
         writer.WriteBoolean("suppressAutoLink", st.SuppressAutoLink);
@@ -410,6 +412,7 @@ public sealed class BlockJsonConverter : JsonConverter<Block>
             Code: B("code"),
             Highlight: highlight,
             BackgroundColor: backgroundColor,
+            ForegroundColor: S("foregroundColor"),
             LinkUrl: S("linkUrl"),
             SuppressAutoLink: B("suppressAutoLink"),
             Subscript: B("subscript"),
