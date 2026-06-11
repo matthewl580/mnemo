@@ -103,6 +103,25 @@ jobs:
           -o vpk-out
           --channel stable
 
+      # Velopack uses the same installer filenames for every RID; suffix with RID so
+      # upload-to-release keeps separate Linux/macOS arch packages on the GitHub Release.
+      - name: Rename release assets per RID
+        shell: bash
+        run: |
+          set -euo pipefail
+          RID="${{ matrix.rid }}"
+          shopt -s nullglob
+          cd vpk-out
+          for f in *.AppImage; do
+            mv "$f" "Mnemo.Desktop-stable-${RID}.AppImage"
+          done
+          for f in *Setup.pkg; do
+            mv "$f" "Mnemo.Desktop-stable-${RID}-Setup.pkg"
+          done
+          for f in *Setup.exe; do
+            mv "$f" "Mnemo.Desktop-stable-${RID}-Setup.exe"
+          done
+
       - name: Portable zip (Windows)
         if: matrix.rid == 'win-x64'
         shell: pwsh
