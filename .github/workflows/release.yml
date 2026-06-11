@@ -22,19 +22,24 @@ jobs:
           - rid: win-x64
             os: windows-latest
             mainexe: Mnemo.UI.exe
+            packIcon: Mnemo.UI/Assets/AppIcons/AppIconLightClassic.ico
           - rid: linux-x64
             os: ubuntu-latest
             mainexe: Mnemo.UI
+            packIcon: Mnemo.UI/Assets/AppIcons/Icon.png
           - rid: linux-arm64
             os: ubuntu-latest
             mainexe: Mnemo.UI
+            packIcon: Mnemo.UI/Assets/AppIcons/Icon.png
           - rid: osx-x64
             # macos-13 is largely retired on GHA; cross-publish osx-x64 from a current image.
             os: macos-14
             mainexe: Mnemo.UI
+            packIcon: Mnemo.UI/Assets/AppIcons/Icon.icns
           - rid: osx-arm64
             os: macos-14
             mainexe: Mnemo.UI
+            packIcon: Mnemo.UI/Assets/AppIcons/Icon.icns
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -61,6 +66,29 @@ jobs:
           -p:AssemblyInformationalVersion=${{ github.ref_name }}
           -o publish
 
+      # Velopack requires .icns on macOS; generate from the canonical PNG before packing.
+      - name: Prepare macOS pack icon
+        if: startsWith(matrix.rid, 'osx-')
+        shell: bash
+        run: |
+          set -euo pipefail
+          SRC="Mnemo.UI/Assets/AppIcons/Icon.png"
+          ICONSET="Mnemo.UI/Assets/AppIcons/Icon.iconset"
+          OUT="Mnemo.UI/Assets/AppIcons/Icon.icns"
+          rm -rf "$ICONSET"
+          mkdir -p "$ICONSET"
+          sips -z 16 16 "$SRC" --out "$ICONSET/icon_16x16.png"
+          sips -z 32 32 "$SRC" --out "$ICONSET/icon_16x16@2x.png"
+          sips -z 32 32 "$SRC" --out "$ICONSET/icon_32x32.png"
+          sips -z 64 64 "$SRC" --out "$ICONSET/icon_32x32@2x.png"
+          sips -z 128 128 "$SRC" --out "$ICONSET/icon_128x128.png"
+          sips -z 256 256 "$SRC" --out "$ICONSET/icon_128x128@2x.png"
+          sips -z 256 256 "$SRC" --out "$ICONSET/icon_256x256.png"
+          sips -z 512 512 "$SRC" --out "$ICONSET/icon_256x256@2x.png"
+          sips -z 512 512 "$SRC" --out "$ICONSET/icon_512x512.png"
+          sips -z 1024 1024 "$SRC" --out "$ICONSET/icon_512x512@2x.png"
+          iconutil -c icns "$ICONSET" -o "$OUT"
+
       - name: Pack (Velopack)
         run: >
           dotnet vpk pack
@@ -71,7 +99,7 @@ jobs:
           --runtime ${{ matrix.rid }}
           --packDir publish
           --mainExe ${{ matrix.mainexe }}
-          --icon Mnemo.UI/Assets/AppIcons/Icon.png
+          --icon ${{ matrix.packIcon }}
           -o vpk-out
           --channel stable
 
