@@ -35,5 +35,10 @@ public class ServiceRegistrar : IServiceRegistrar
     {
         _services.AddTransient<TService, TImplementation>();
     }
+
+    public void AddTransient<TService>(Func<IServiceProvider, TService> factory) where TService : class
+    {
+        _services.AddTransient<TService>(factory);
+    }
 }
 

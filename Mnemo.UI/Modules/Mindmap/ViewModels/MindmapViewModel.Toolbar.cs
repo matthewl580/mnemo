@@ -206,8 +206,33 @@ public partial class MindmapViewModel
             foreach (var node in Nodes.Where(n => n.IsSelected))
             {
                 node.Shape = shape;
-                node.Width = null;
-                node.Height = null;
+
+                if (shape == "circle")
+                {
+                    // Circle nodes need an equal width and height. When the node was
+                    // previously auto-sized (Width == null, e.g. pill shape), setting
+                    // Width = null again is a no-op (ObservableProperty equality check),
+                    // so SizeChanged never fires and the visual stays unchanged.
+                    // Fix: set Width/Height to the current measured square size explicitly,
+                    // which is guaranteed to be a value change (null → double).
+                    double side = Math.Max(node.ActualWidth, node.ActualHeight);
+                    if (side > 0)
+                    {
+                        node.Width = side;
+                        node.Height = side;
+                    }
+                    else
+                    {
+                        node.Width = null;
+                        node.Height = null;
+                    }
+                }
+                else
+                {
+                    node.Width = null;
+                    node.Height = null;
+                }
+
                 _session.SyncNodeStyleToModel(node);
                 await _mindmapService.UpdateNodeStyleAsync(
                     _session.Current.Id, node.Id, MindmapEditorSession.BuildStyleDict(node));

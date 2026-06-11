@@ -81,6 +81,11 @@ public partial class MindmapView : UserControl
 
         DataContextChanged += OnDataContextChanged;
 
+        // Tunnel handler: intercepts Escape and F2 before a focused child TextBox
+        // can consume them, so keybinds like clear-selection and edit-edge-label
+        // work even while the user is typing inside a node.
+        AddHandler(InputElement.KeyDownEvent, OnMindmapKeyDownTunnel, RoutingStrategies.Tunnel);
+
         Loaded += OnViewLoaded;
         Unloaded += OnViewUnloaded;
     }
@@ -238,6 +243,13 @@ public partial class MindmapView : UserControl
         // Only when click was on empty space (node handler sets e.Handled when clicking a node)
         if (!e.Handled)
         {
+            // Clear all selection immediately when clicking on empty canvas space.
+            if (DataContext is MindmapViewModel clearVm)
+            {
+                foreach (var n in clearVm.Nodes) n.IsSelected = false;
+                clearVm.SelectedEdge = null;
+            }
+
             // Move focus to canvas so the node TextBox loses focus (deselects visually)
             if (sender is Control focusTarget)
                 focusTarget.Focus();
@@ -246,13 +258,11 @@ public partial class MindmapView : UserControl
             {
                 _isPanning = true;
                 _isSelecting = false;
-                // Don't deselect here - wait for release to see if it was a click or drag
             }
             else
             {
                 _isPanning = false;
                 _isSelecting = true;
-                if (DataContext is MindmapViewModel viewModel) viewModel.SelectedEdge = null;
                 _addToSelectionOnBoxSelect = e.KeyModifiers.HasFlag(KeyModifiers.Control);
                 _selectionStart = mainCanvas != null ? e.GetPosition(mainCanvas) : e.GetPosition(this);
                 var inv = TransformMatrix.Invert();
@@ -636,7 +646,28 @@ public partial class MindmapView : UserControl
             vm.ClearHoverState();
     }
 
+    /// <summary>
+    /// Tunnel-phase handler: intercepts Escape and F2 before a focused child TextBox
+    /// gets a chance to consume them. This lets clear-selection and edit-edge-label
+    /// work even while the user has a node text box focused.
+    /// </summary>
+    private void OnMindmapKeyDownTunnel(object? sender, KeyEventArgs e)
+    {
+        if (e.Handled) return;
+        // Only intercept keys that do not conflict with text editing.
+        if (e.Key != Key.Escape && e.Key != Key.F2) return;
+        ProcessMindmapKey(e);
+    }
+
+    /// <summary>Bubble-phase handler wired from the MainCanvas AXAML KeyDown binding.</summary>
     private void OnMindmapKeyDown(object? sender, KeyEventArgs e)
+    {
+        // Skip if already handled by the tunnel-phase handler above.
+        if (e.Handled) return;
+        ProcessMindmapKey(e);
+    }
+
+    private void ProcessMindmapKey(KeyEventArgs e)
     {
         if (DataContext is not MindmapViewModel) return;
         if (Application.Current is not Mnemo.UI.App app || app.Services == null) return;

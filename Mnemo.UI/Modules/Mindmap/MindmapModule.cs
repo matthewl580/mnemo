@@ -1,5 +1,6 @@
 using System;
 using System.Linq;
+using Mnemo.Core.History;
 using Mnemo.Core.Models.Keybinds;
 using Mnemo.Core.Services;
 using Mnemo.Core.Services.Keybinds;
@@ -19,12 +20,35 @@ public class MindmapModule : IModule
     {
         services.AddSingleton<IMindmapService, MindmapService>();
         services.AddSingleton<IMindmapLayoutService, MindmapLayoutService>();
-        services.AddTransient<MindmapEditorSession>();
-        services.AddTransient<MindmapEditorHistory>();
-        services.AddTransient<MindmapClipboard>();
-        services.AddTransient<MindmapGraphMutator>();
-        services.AddTransient<MindmapEdgeHoverState>();
-        services.AddTransient<MindmapViewModel>();
+        // Each MindmapViewModel gets its own graph state. The session, history,
+        // clipboard, hover, and mutator must all share the SAME session/history
+        // instances so mutations operate on the data the VM is displaying.
+        // AddTransient auto-resolution would give MindmapGraphMutator its own
+        // fresh MindmapEditorSession (Current==null), breaking all edits.
+        services.AddTransient<MindmapViewModel>(sp =>
+        {
+            var session = new MindmapEditorSession();
+            var history = new MindmapEditorHistory(sp.GetRequiredService<IHistoryManager>());
+            var clipboard = new MindmapClipboard();
+            var hover = new MindmapEdgeHoverState(session);
+            var mutator = new MindmapGraphMutator(
+                sp.GetRequiredService<IMindmapService>(),
+                sp.GetRequiredService<IMindmapLayoutService>(),
+                session,
+                history,
+                clipboard,
+                sp.GetService<ILoggerService>());
+            return new MindmapViewModel(
+                sp.GetRequiredService<IMindmapService>(),
+                session,
+                history,
+                mutator,
+                hover,
+                sp.GetService<ISettingsService>(),
+                sp.GetService<IOverlayService>(),
+                sp.GetService<ILocalizationService>(),
+                sp.GetService<ILoggerService>());
+        });
         services.AddTransient<MindmapOverviewViewModel>();
         services.AddSingleton<ISearchProvider, MindmapsSearchProvider>();
     }
