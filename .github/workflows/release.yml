@@ -71,6 +71,7 @@ jobs:
           --runtime ${{ matrix.rid }}
           --packDir publish
           --mainExe ${{ matrix.mainexe }}
+          --icon Mnemo.UI/Assets/AppIcons/Icon.png
           -o vpk-out
           --channel stable
 
