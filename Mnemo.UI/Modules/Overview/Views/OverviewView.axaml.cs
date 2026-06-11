@@ -105,6 +105,21 @@ public partial class OverviewView : UserControl
         }
     }
 
+    private void OnWidgetDragCancelled(object? sender, RoutedEventArgs e)
+    {
+        // Pointer capture was lost unexpectedly (e.g. window lost focus during drag).
+        // The WidgetContainer already cleared its own RenderTransform and called Widget.CancelDrag().
+        // We just need to hide the ghost and release the shared transform reference.
+        _currentTransform = null;
+
+        if (DataContext is OverviewViewModel vm)
+        {
+            vm.IsGhostVisible = false;
+            vm.GhostLeftPixels = 0;
+            vm.GhostTopPixels = 0;
+        }
+    }
+
     private void OnWidgetRemoveRequested(object? sender, RoutedEventArgs e)
     {
         if (sender is WidgetContainer container && container.Widget != null && DataContext is OverviewViewModel vm)

@@ -8,6 +8,7 @@ using Mnemo.Core.Services;
 using Mnemo.UI.Modules.Overview.Models;
 using Mnemo.UI.Modules.Overview.Views;
 using Mnemo.UI.ViewModels;
+using System.Threading;
 
 namespace Mnemo.UI.Modules.Overview.ViewModels;
 
@@ -27,6 +28,10 @@ public partial class OverviewViewModel : ViewModelBase, INavigationAware
     private readonly ISettingsService _settingsService;
     private readonly ILocalizationService _localizationService;
     private readonly ILoggerService _logger;
+
+    // Ensures concurrent save requests cannot race each other.
+    // Each save snapshots Widgets at execution time so the last save always reflects the latest state.
+    private readonly SemaphoreSlim _saveSemaphore = new(1, 1);
 
     /// <summary>
     /// Gets the collection of active widgets on the dashboard.
@@ -246,12 +251,15 @@ public partial class OverviewViewModel : ViewModelBase, INavigationAware
                         size = new WidgetSize(widget.Metadata.DefaultSize.ColSpan, size.RowSpan);
                     }
 
-                    await AddWidgetAsync(e.WidgetId, new WidgetPosition(e.Column, e.Row), size).ConfigureAwait(false);
+                    // Skip save during restore — we're reading the already-correct stored state.
+                    await AddWidgetAsync(e.WidgetId, new WidgetPosition(e.Column, e.Row), size, saveLayout: false).ConfigureAwait(false);
                 }
             }
             else
             {
+                // No saved layout: add defaults and persist once when all are ready.
                 await AddDefaultWidgetsAsync().ConfigureAwait(false);
+                RunAndLogAsync(SaveLayoutAsync(), "save default dashboard layout");
             }
             IsLayoutLoaded = true;
         }).ConfigureAwait(false);
@@ -262,27 +270,44 @@ public partial class OverviewViewModel : ViewModelBase, INavigationAware
     /// </summary>
     private async Task AddDefaultWidgetsAsync()
     {
-        await AddWidgetAsync("flashcard-stats", new WidgetPosition(0, 0)).ConfigureAwait(false);
-        await AddWidgetAsync("recent-decks", new WidgetPosition(2, 0)).ConfigureAwait(false);
-        await AddWidgetAsync("recent-notes", new WidgetPosition(4, 0)).ConfigureAwait(false);
+        await AddWidgetAsync("flashcard-stats", new WidgetPosition(0, 0), saveLayout: false).ConfigureAwait(false);
+        await AddWidgetAsync("recent-decks", new WidgetPosition(2, 0), saveLayout: false).ConfigureAwait(false);
+        await AddWidgetAsync("recent-notes", new WidgetPosition(4, 0), saveLayout: false).ConfigureAwait(false);
     }
 
     /// <summary>
     /// Persists the current widget layout to storage.
+    /// Serialized via <see cref="_saveSemaphore"/> so that concurrent fire-and-forget calls cannot
+    /// race each other and overwrite a newer save with an older snapshot.
+    /// Widgets are snapshotted on the UI thread at the point this save actually executes,
+    /// so a queued save always captures the most up-to-date state.
     /// </summary>
     private async Task SaveLayoutAsync()
     {
-        var entries = Widgets
-            .Where(w => w.WidgetId != "ghost")
-            .Select(w => new DashboardLayoutEntry(w.WidgetId, w.Position.Column, w.Position.Row, w.Size.ColSpan, w.Size.RowSpan))
-            .ToList();
-        await _storage.SaveAsync(LayoutStorageKey, entries).ConfigureAwait(false);
+        await _saveSemaphore.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            // Snapshot Widgets on the UI thread so we always read consistent, up-to-date state.
+            var entries = await Dispatcher.UIThread.InvokeAsync(() =>
+                Widgets
+                    .Where(w => w.WidgetId != "ghost")
+                    .Select(w => new DashboardLayoutEntry(w.WidgetId, w.Position.Column, w.Position.Row, w.Size.ColSpan, w.Size.RowSpan))
+                    .ToList()
+            );
+
+            await _storage.SaveAsync(LayoutStorageKey, entries).ConfigureAwait(false);
+        }
+        finally
+        {
+            _saveSemaphore.Release();
+        }
     }
 
     /// <summary>
     /// Adds a widget to the dashboard at the specified position and optional size (for restore; otherwise uses default).
+    /// Pass <paramref name="saveLayout"/> as <c>false</c> when restoring from storage to avoid redundant writes.
     /// </summary>
-    public async Task AddWidgetAsync(string widgetId, WidgetPosition position, WidgetSize? size = null)
+    public async Task AddWidgetAsync(string widgetId, WidgetPosition position, WidgetSize? size = null, bool saveLayout = true)
     {
         var widget = _widgetRegistry.GetWidgetById(widgetId);
         if (widget == null)
@@ -312,7 +337,8 @@ public partial class OverviewViewModel : ViewModelBase, INavigationAware
         dashboardWidget.IsEditMode = IsEditMode;
         Widgets.Add(dashboardWidget);
         await content.InitializeAsync().ConfigureAwait(false);
-        RunAndLogAsync(SaveLayoutAsync(), "save dashboard layout");
+        if (saveLayout)
+            RunAndLogAsync(SaveLayoutAsync(), "save dashboard layout");
     }
 
     /// <summary>

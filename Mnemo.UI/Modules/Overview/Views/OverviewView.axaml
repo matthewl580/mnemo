@@ -164,6 +164,7 @@
                                 DragStarted="OnWidgetDragStarted"
                                 DragDelta="OnWidgetDragDelta"
                                 DragCompleted="OnWidgetDragCompleted"
+                                DragCancelled="OnWidgetDragCancelled"
                                 RemoveRequested="OnWidgetRemoveRequested">
                                 <!-- Transparent hit-test surface to prevent click-through to canvas -->
                                 <Border Background="Transparent"

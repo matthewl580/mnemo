@@ -176,6 +176,9 @@ public class WidgetContainer : ContentControl
     public static readonly RoutedEvent<VectorEventArgs> DragCompletedEvent =
         RoutedEvent.Register<WidgetContainer, VectorEventArgs>(nameof(DragCompleted), RoutingStrategies.Bubble);
 
+    public static readonly RoutedEvent<RoutedEventArgs> DragCancelledEvent =
+        RoutedEvent.Register<WidgetContainer, RoutedEventArgs>(nameof(DragCancelled), RoutingStrategies.Bubble);
+
     public event EventHandler<VectorEventArgs> DragStarted
     {
         add => AddHandler(DragStartedEvent, value);
@@ -192,6 +195,12 @@ public class WidgetContainer : ContentControl
     {
         add => AddHandler(DragCompletedEvent, value);
         remove => RemoveHandler(DragCompletedEvent, value);
+    }
+
+    public event EventHandler<RoutedEventArgs> DragCancelled
+    {
+        add => AddHandler(DragCancelledEvent, value);
+        remove => RemoveHandler(DragCancelledEvent, value);
     }
 
     public static readonly RoutedEvent<RoutedEventArgs> RemoveRequestedEvent =
@@ -288,21 +297,27 @@ public class WidgetContainer : ContentControl
         if (_isDragging && Widget != null)
         {
             Classes.Remove("dragging");
-            // Commit or cancel the drag based on whether the position is valid
-            // This will be handled by the parent view's logic
-            // Widget.CommitDrag(); // Let the parent decide
             var currentPosition = e.GetPosition(Parent as Visual);
             var vector = currentPosition - _initialMousePosition!.Value;
+
+            // Clear dragging state BEFORE releasing pointer capture so that
+            // OnPointerCaptureLost (which fires synchronously inside Capture(null))
+            // does not see _isDragging=true and wrongly raise DragCancelledEvent.
+            _dragStartPoint = null;
+            _initialMousePosition = null;
+            _isDragging = false;
+
             RaiseEvent(new VectorEventArgs { RoutedEvent = DragCompletedEvent, Vector = vector });
-            
             e.Pointer.Capture(null);
             e.Handled = true;
         }
-
-        _dragStartPoint = null;
-        _initialMousePosition = null;
-        _isDragging = false;
-        Classes.Remove("dragging");
+        else
+        {
+            _dragStartPoint = null;
+            _initialMousePosition = null;
+            _isDragging = false;
+            Classes.Remove("dragging");
+        }
     }
 
     protected override void OnPointerCaptureLost(PointerCaptureLostEventArgs e)
@@ -313,6 +328,8 @@ public class WidgetContainer : ContentControl
         {
             Widget.CancelDrag();
             Classes.Remove("dragging");
+            RenderTransform = null;
+            RaiseEvent(new RoutedEventArgs(DragCancelledEvent));
         }
 
         _dragStartPoint = null;
