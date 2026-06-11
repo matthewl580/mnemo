@@ -3,7 +3,7 @@
     <OutputType>WinExe</OutputType>
     <TargetFramework>net10.0</TargetFramework>
     <!-- Matches CI matrix; does not set RuntimeIdentifier so local build/run stays RID-agnostic. Publish with -r picks one RID and drives post-publish trim. -->
-    <RuntimeIdentifiers>win-x64;linux-x64;osx-x64;osx-arm64</RuntimeIdentifiers>
+    <RuntimeIdentifiers>win-x64;linux-x64;linux-arm64;osx-x64;osx-arm64</RuntimeIdentifiers>
     <Nullable>enable</Nullable>
     <Version>0.6.5</Version>
     <BuiltInComInteropSupport>true</BuiltInComInteropSupport>
@@ -37,6 +37,9 @@
     <!-- ReadyToRun pre-JITs assemblies during publish; trades disk size for startup time. -->
     <PublishReadyToRun>true</PublishReadyToRun>
     <PublishReadyToRunComposite>true</PublishReadyToRunComposite>
+    <!-- Ensure native .so/.dylib files from NuGet packages land beside the executable in self-contained builds. -->
+    <IncludeNativeLibrariesForSelfContained>true</IncludeNativeLibrariesForSelfContained>
+    <PublishSingleFile>false</PublishSingleFile>
   </PropertyGroup>
 
   <ItemGroup>
