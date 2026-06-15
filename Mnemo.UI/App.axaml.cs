@@ -29,7 +29,7 @@ public partial class App : Application
     /// (they are not visual children until opened). Submenus use <see cref="Popup"/> in MenuItem templates, not <see cref="PopupFlyoutBase"/>.
     /// </summary>
     private const double FlyoutAnchorGap = 8;
-
+ 
     static App()
     {
         PopupFlyoutBase.VerticalOffsetProperty.OverrideDefaultValue<PopupFlyoutBase>(FlyoutAnchorGap);
